@@ -1,4 +1,8 @@
 教室学生机位/*
 test_data/*
+models/*
 yolov8_face_detection/data/*
 yolov8_face_detection/models/*
+
+
+**/__pycache__/*

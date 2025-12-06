@@ -17,7 +17,7 @@ import time
 class YOLOv8FaceDetector:
     """YOLOv8 人脸检测器类"""
     
-    def __init__(self, model_path='yolov8n.pt', conf_threshold=0.5, device='auto'):
+    def __init__(self, model_path='models/yolov8n-face.pt', conf_threshold=0.5, device='auto'):
         """
         初始化人脸检测器
         
@@ -49,8 +49,8 @@ class YOLOv8FaceDetector:
         Returns:
             tuple: (检测结果, 可视化图像)
         """
-        # 运行推理
-        results = self.model(image, conf=self.conf_threshold, classes=[0])  # 假设人脸类别为0
+        # 运行推理 - 专门的人脸检测模型通常只检测人脸
+        results = self.model(image, conf=self.conf_threshold)
         
         faces = []
         vis_image = image.copy() if isinstance(image, np.ndarray) else np.array(image)
@@ -200,8 +200,8 @@ class YOLOv8FaceDetector:
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='YOLOv8 人脸检测器')
-    parser.add_argument('--model', type=str, default='yolov8n.pt', 
-                       help='模型文件路径')
+    parser.add_argument('--model', type=str, default='models/yolov8n-face.pt',
+                       help='人脸检测模型文件路径')
     parser.add_argument('--source', type=str, default='0', 
                        help='输入源 (摄像头ID/视频文件/图片文件/图片目录)')
     parser.add_argument('--output', type=str, default='runs/detect', 
