@@ -1,0 +1,108 @@
+# YOLOv8 人脸检测项目依赖包
+# Face Detection with YOLOv8 - Required Dependencies
+
+# 核心深度学习框架
+torch>=1.8.0                    # PyTorch深度学习框架
+torchvision>=0.9.0               # PyTorch计算机视觉库
+torchaudio>=0.8.0                # PyTorch音频处理库 (可选)
+
+# YOLO模型库
+ultralytics>=8.0.0               # Ultralytics YOLOv8官方库
+
+# 计算机视觉和图像处理
+opencv-python>=4.5.0             # OpenCV计算机视觉库
+opencv-contrib-python>=4.5.0     # OpenCV扩展模块
+Pillow>=8.0.0                    # Python图像处理库
+imageio>=2.9.0                   # 图像读写库
+scikit-image>=0.18.0             # 图像处理和分析库
+
+# 数据处理和科学计算
+numpy>=1.19.0                    # 数组和数值计算
+pandas>=1.2.0                    # 数据分析和处理
+scipy>=1.6.0                     # 科学计算库
+matplotlib>=3.3.0                # 绘图和可视化
+seaborn>=0.11.0                  # 统计图形库
+
+# 机器学习工具
+scikit-learn>=0.24.0             # 机器学习库
+albumentations>=1.0.0             # 图像增强库
+imgaug>=0.4.0                    # 图像增强库
+
+# 进度条和用户界面
+tqdm>=4.60.0                     # 进度条库
+rich>=10.0.0                     # 富文本和美观输出
+click>=7.0                       # 命令行接口库
+
+# 配置文件处理
+PyYAML>=5.4.0                    # YAML文件处理
+configargparse>=1.4.0            # 配置文件解析
+
+# 文件和路径处理
+pathlib2>=2.3.0; python_version < '3.4'  # 路径处理 (Python < 3.4)
+glob2>=0.7                       # 文件匹配模式
+
+# 并行处理
+joblib>=1.0.0                    # 并行计算库
+multiprocess>=0.70.0             # 多进程处理
+
+# 模型序列化和持久化
+pickle-mixin>=1.0.2              # pickle扩展
+dill>=0.3.0                      # 序列化库
+cloudpickle>=1.6.0               # 云端pickle
+
+# 日志和调试
+tensorboard>=2.4.0               # TensorBoard可视化
+wandb>=0.12.0                    # Weights & Biases实验跟踪
+loguru>=0.5.0                    # 现代日志库
+
+# HTTP和网络
+requests>=2.25.0                 # HTTP库
+urllib3>=1.26.0                  # URL处理库
+
+# 时间和日期
+python-dateutil>=2.8.0           # 日期工具
+pytz>=2021.1                     # 时区处理
+
+# 系统和环境
+psutil>=5.8.0                    # 系统和进程工具
+GPUtil>=1.4.0                    # GPU监控工具
+
+# 数据格式支持
+h5py>=3.1.0                      # HDF5文件格式
+pycocotools>=2.0.2               # COCO数据集工具
+lxml>=4.6.0                      # XML解析库
+xmltodict>=0.12.0                # XML转字典
+
+# 模型量化和优化
+onnx>=1.8.0                      # ONNX模型格式
+onnxruntime>=1.7.0               # ONNX运行时
+onnx-simplifier>=0.3.0           # ONNX模型简化
+openvino-dev>=2022.1.0           # Intel OpenVINO工具包
+
+# TensorRT (NVIDIA GPU加速，可选)
+# nvidia-tensorrt>=8.0.0         # 需要NVIDIA显卡和CUDA
+# pycuda>=2021.1                 # CUDA Python绑定
+
+# 移动端部署 (可选)
+coremltools>=5.0.0; sys_platform == 'darwin'  # macOS Core ML
+tensorflow>=2.4.0                              # TensorFlow (TFLite转换)
+
+# 开发和测试工具
+pytest>=6.2.0                   # 单元测试框架
+pytest-cov>=2.12.0              # 测试覆盖率
+black>=21.0.0                    # 代码格式化
+flake8>=3.9.0                    # 代码检查
+pre-commit>=2.13.0               # Git预提交钩子
+
+# 其他实用工具
+fire>=0.4.0                     # 命令行接口生成
+easydict>=1.9                   # 字典访问增强
+omegaconf>=2.1.0                # 结构化配置
+hydra-core>=1.1.0               # 配置管理框架
+
+# 可选的GPU加速库
+# cupy-cuda11x>=9.0.0            # GPU数组库 (CUDA 11.x)
+# cudf>=21.06.0                  # GPU数据框架
+
+# 推荐的Python版本要求
+# python_requires>=3.7

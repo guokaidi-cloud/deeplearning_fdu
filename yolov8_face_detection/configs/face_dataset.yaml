@@ -1,0 +1,65 @@
+# YOLOv8 人脸检测数据集配置文件
+# Face Detection Dataset Configuration for YOLOv8
+
+# 数据集路径配置
+path: /home/kaidiguo/workspace/deeplearning_fdu/yolov8_face_detection/data  # 数据集根目录
+train: train/images  # 训练集图像目录 (相对于path)
+val: val/images      # 验证集图像目录 (相对于path)
+test: test/images    # 测试集图像目录 (相对于path, 可选)
+
+# 类别数量
+nc: 1  # 类别数量 (仅人脸一个类别)
+
+# 类别名称映射
+names:
+  0: face  # 类别ID: 类别名称
+
+# 数据集信息
+dataset_info:
+  name: "Face Detection Dataset"
+  description: "人脸检测数据集，基于YOLO格式"
+  version: "1.0"
+  license: "MIT"
+  
+# 数据增强配置 (训练时使用)
+augmentation:
+  # 几何变换
+  hsv_h: 0.015      # 色调增强范围
+  hsv_s: 0.7        # 饱和度增强范围  
+  hsv_v: 0.4        # 明度增强范围
+  degrees: 0.0      # 旋转角度范围 (度)
+  translate: 0.1    # 平移范围 (图像尺寸的比例)
+  scale: 0.5        # 缩放范围
+  shear: 0.0        # 剪切角度范围 (度)
+  perspective: 0.0  # 透视变换范围
+  flipud: 0.0       # 垂直翻转概率
+  fliplr: 0.5       # 水平翻转概率
+  mosaic: 1.0       # Mosaic增强概率
+  mixup: 0.0        # Mixup增强概率
+  copy_paste: 0.0   # Copy-paste增强概率
+
+# 训练参数建议
+training_params:
+  epochs: 100       # 推荐训练轮数
+  batch_size: 16    # 推荐批次大小
+  imgsz: 640        # 输入图像尺寸
+  lr0: 0.01         # 初始学习率
+  momentum: 0.937   # SGD动量
+  weight_decay: 0.0005  # 权重衰减
+  warmup_epochs: 3.0    # 预热轮数
+  patience: 50      # 早停耐心值
+  
+# 验证参数
+val_params:
+  conf_thres: 0.001   # 置信度阈值
+  iou_thres: 0.6      # NMS IoU阈值
+  max_det: 300        # 最大检测数量
+  
+# 模型导出配置
+export_config:
+  formats: ['onnx', 'engine']  # 导出格式
+  simplify: true               # 简化ONNX模型
+  opset: 11                    # ONNX opset版本
+  dynamic: false               # 动态输入尺寸
+  int8: false                  # INT8量化
+  half: false                  # FP16精度
