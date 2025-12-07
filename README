@@ -11,3 +11,10 @@ python yolov8_face_detection/opencv_face_detector.py \
 python yolov8_face_detection/yolov8_face_detector.py --input "教室学生机位/深度学习应用++2025-11-22第1-3节+[30657+-+524562]教室流.mp4"\
     --output "test_data/yolov8_classroom_1hour_later.mp4" \
     --max-frames 500 --conf 0.15 --start-time 3600 
+
+
+# YOLOv12 demo 
+# --save-faces 目前只是测试使用，会保存大量图片下来
+python yolov8_face_detection/yolov8_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4" \
+    --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces.mp4"  \
+    --max-frames 100 --conf 0.15 --start-time 6000  --model yolov12l-face --save-faces

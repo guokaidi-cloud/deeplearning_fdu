@@ -68,13 +68,13 @@ def main():
         'yolov8n-face': 'https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt',
         'yolov8s-face': 'https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8s-face.pt',
         'yolov8m-face': 'https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8m-face.pt',
+        "yolov12l-face": "https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov12l-face.pt",
     }
     
     # 备用下载源
     backup_urls = {
         'yolov8n-face': [
             'https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8n.pt',
-            'https://github.com/derronqi/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt'
         ],
         'yolov8s-face': [
             'https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8s.pt',

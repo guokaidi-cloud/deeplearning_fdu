@@ -46,7 +46,7 @@ def check_and_download_model(model_path, model_name='yolov8n-face'):
         # 人脸检测模型下载链接
         face_model_urls = {
             'yolov8n-face': 'https://github.com/lindevs/yolov8-face/releases/latest/download/yolov8n-face-lindevs.pt',
-            'yolov8s-face': 'https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8s.pt',
+            'yolov12l-face': 'https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov12l-face.pt',
         }
         
         if model_name not in face_model_urls:
@@ -122,11 +122,20 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         Returns:
             tuple: (检测结果, 可视化图像)
         """
+        # 保存原始图像尺寸
+        if isinstance(image, np.ndarray):
+            original_image = image.copy()
+            original_shape = image.shape[:2]  # (height, width)
+        else:
+            original_image = np.array(image)
+            original_shape = original_image.shape[:2]
+        
         # 运行推理
-        results = self.model(image, conf=self.conf_threshold, verbose=False)
+        results = self.model(original_image, conf=self.conf_threshold, verbose=False)
         
         faces = []
-        vis_image = image.copy() if isinstance(image, np.ndarray) else np.array(image)
+        # 确保使用原始分辨率的图像进行可视化
+        vis_image = original_image.copy()
         
         # 解析检测结果
         for result in results:
@@ -147,23 +156,35 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
                         # 绘制边界框（使用更显眼的颜色）
                         cv2.rectangle(vis_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
                         
-                        # 添加置信度标签
+                        # 添加置信度标签（使用更小的字体）
                         label = f'Face: {confidence:.3f}'
-                        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-                        cv2.rectangle(vis_image, (int(x1), int(y1) - label_size[1] - 10), 
+                        font_scale = 0.4  # 字体缩放因子
+                        thickness = 1     # 线条粗细
+                        padding = 4       # padding
+                        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
+                        cv2.rectangle(vis_image, (int(x1), int(y1) - label_size[1] - padding), 
                                     (int(x1) + label_size[0], int(y1)), (0, 255, 255), -1)
-                        cv2.putText(vis_image, label, (int(x1), int(y1) - 5), 
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+                        cv2.putText(vis_image, label, (int(x1), int(y1) - padding // 2), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
         
         return faces, vis_image
 
 
 def process_video_with_yolov8(detector, video_path, output_path=None, show_video=False, 
-                              max_frames=None, start_time=None, end_time=None):
+                              max_frames=None, start_time=None, end_time=None, save_faces=True):
     """
     使用YOLOv8处理视频文件进行人脸检测
+    
+    Args:
+        save_faces (bool): 是否保存裁剪的人脸到data目录
     """
     print(f"🎥 开始处理视频: {video_path}")
+    
+    # 创建data目录用于保存人脸
+    if save_faces:
+        data_dir = Path(video_path).parent / 'data'
+        data_dir.mkdir(parents=True, exist_ok=True)
+        print(f"📁 人脸将保存到: {data_dir}")
     
     # 打开视频文件
     cap = cv2.VideoCapture(str(video_path))
@@ -233,7 +254,12 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
     if output_path:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        if not writer.isOpened():
+            print(f"❌ 无法创建视频写入器，尝试使用H.264编码")
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
         print(f"📁 输出视频: {output_path}")
+        print(f"📐 输出分辨率: {width}x{height}, FPS: {fps}")
     
     # 处理统计
     processed_frames = 0
@@ -262,6 +288,47 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
             faces, vis_frame = detector.detect_faces(frame, visualize=True)
             total_faces += len(faces)
             
+            # 确保vis_frame的分辨率与原始frame一致
+            if vis_frame.shape[:2] != frame.shape[:2]:
+                print(f"⚠️  警告: vis_frame分辨率 {vis_frame.shape[:2]} 与原始frame分辨率 {frame.shape[:2]} 不一致，使用原始frame")
+                vis_frame = frame.copy()
+                # 重新绘制检测框
+                for face in faces:
+                    x1, y1, x2, y2 = face['bbox']
+                    confidence = face['confidence']
+                    cv2.rectangle(vis_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
+                    label = f'Face: {confidence:.3f}'
+                    font_scale = 0.4  # 字体缩放因子（0.4比原来的0.6更小）
+                    thickness = 1     # 线条粗细（1比原来的2更细）
+                    padding = 4      # padding（4比原来的10更小）
+                    label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
+                    cv2.rectangle(vis_frame, (int(x1), int(y1) - label_size[1] - padding), 
+                                (int(x1) + label_size[0], int(y1)), (0, 255, 255), -1)
+                    cv2.putText(vis_frame, label, (int(x1), int(y1) - padding // 2), 
+                              cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+            
+            # 保存裁剪的人脸
+            if save_faces and len(faces) > 0:
+                for face_idx, face in enumerate(faces):
+                    x1, y1, x2, y2 = face['bbox']
+                    confidence = face['confidence']
+                    
+                    # 确保坐标在图像范围内
+                    x1 = max(0, int(x1))
+                    y1 = max(0, int(y1))
+                    x2 = min(frame.shape[1], int(x2))
+                    y2 = min(frame.shape[0], int(y2))
+                    
+                    # 裁剪人脸区域
+                    face_crop = frame[y1:y2, x1:x2]
+                    
+                    # 只保存有效的人脸（尺寸不能太小）
+                    if face_crop.shape[0] > 20 and face_crop.shape[1] > 20:
+                        # 生成文件名：帧号_人脸序号_置信度.jpg
+                        face_filename = f"frame_{current_frame:06d}_face_{face_idx:02d}_conf_{confidence:.3f}.jpg"
+                        face_path = data_dir / face_filename
+                        cv2.imwrite(str(face_path), face_crop)
+            
             # 添加统计信息
             elapsed_time = time.time() - process_start_time
             current_fps = processed_frames / elapsed_time if elapsed_time > 0 else 0
@@ -285,6 +352,9 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
             
             # 保存帧
             if writer:
+                # 确保vis_frame的分辨率与VideoWriter设置的分辨率一致
+                if vis_frame.shape[:2] != (height, width):
+                    vis_frame = cv2.resize(vis_frame, (width, height), interpolation=cv2.INTER_LINEAR)
                 writer.write(vis_frame)
             
             # 显示视频
@@ -342,7 +412,7 @@ def main():
     parser.add_argument('--end-time', type=str, 
                        help='结束时间 (秒数或 HH:MM:SS 格式)')
     parser.add_argument('--model', type=str, default='yolov8n-face',
-                       choices=['yolov8n-face', 'yolov8s-face'],
+                       choices=['yolov8n-face', 'yolov12l-face'],
                        help='人脸检测模型名称')
     parser.add_argument('--conf', type=float, default=0.3, 
                        help='置信度阈值')
@@ -350,6 +420,10 @@ def main():
                        help='运行设备')
     parser.add_argument('--models-dir', type=str, default='models',
                        help='模型存放目录')
+    parser.add_argument('--save-faces', action='store_true', default=False,
+                       help='保存裁剪的人脸到原始数据的data目录')
+    parser.add_argument('--no-save-faces', dest='save_faces', action='store_false',
+                       help='不保存裁剪的人脸')
     
     args = parser.parse_args()
     
@@ -384,13 +458,40 @@ def main():
                 show_video=args.show,
                 max_frames=args.max_frames,
                 start_time=args.start_time,
-                end_time=args.end_time
+                end_time=args.end_time,
+                save_faces=args.save_faces
             )
         
         # 处理图片文件
         elif input_path.is_file() and input_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
             image = cv2.imread(str(input_path))
             faces, vis_image = detector.detect_faces(image, visualize=True)
+            
+            # 保存裁剪的人脸
+            if args.save_faces and len(faces) > 0:
+                data_dir = input_path.parent / 'data'
+                data_dir.mkdir(parents=True, exist_ok=True)
+                print(f"📁 人脸将保存到: {data_dir}")
+                
+                for face_idx, face in enumerate(faces):
+                    x1, y1, x2, y2 = face['bbox']
+                    confidence = face['confidence']
+                    
+                    # 确保坐标在图像范围内
+                    x1 = max(0, int(x1))
+                    y1 = max(0, int(y1))
+                    x2 = min(image.shape[1], int(x2))
+                    y2 = min(image.shape[0], int(y2))
+                    
+                    # 裁剪人脸区域
+                    face_crop = image[y1:y2, x1:x2]
+                    
+                    # 只保存有效的人脸（尺寸不能太小）
+                    if face_crop.shape[0] > 20 and face_crop.shape[1] > 20:
+                        face_filename = f"{input_path.stem}_face_{face_idx:02d}_conf_{confidence:.3f}.jpg"
+                        face_path = data_dir / face_filename
+                        cv2.imwrite(str(face_path), face_crop)
+                        print(f"   💾 保存人脸: {face_filename}")
             
             # 保存结果
             if not output_path:
