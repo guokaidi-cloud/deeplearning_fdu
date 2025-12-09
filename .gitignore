@@ -7,6 +7,8 @@ yolov8_face_detection/models/*
 
 **/__pycache__/*
 
-
-
 25秋深度学习应用_选课同学照片_54人/*
+
+
+**/uploads/*
+**/outputs/*

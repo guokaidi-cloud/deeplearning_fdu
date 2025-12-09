@@ -187,12 +187,32 @@ class OpenCVFaceDetector:
             
         print(f"🎯 将处理 {process_frames} 帧 (从第{start_frame}帧到第{start_frame + process_frames}帧)")
         
-        # 设置视频写入器
+        # 设置视频写入器（尝试多种编码，提高浏览器可播放性）
         writer = None
         if output_path:
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+            def _create_writer(path: Path, fps: int, size):
+                width, height = size
+                codec_candidates = [
+                    ("avc1", "H.264 (浏览器兼容性好，需系统支持)"),
+                    ("mp4v", "MPEG-4 Part 2 (兼容性一般)"),
+                    ("XVID", "XVID (备用)"),
+                ]
+                for fourcc_tag, desc in codec_candidates:
+                    fourcc = cv2.VideoWriter_fourcc(*fourcc_tag)
+                    writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
+                    if writer.isOpened():
+                        print(f"✅ 使用编码 {fourcc_tag} - {desc}")
+                        return writer, fourcc_tag
+                    else:
+                        print(f"⚠️ 创建写入器失败，尝试下一个编码: {fourcc_tag}")
+                return None, None
+
+            writer, used_codec = _create_writer(output_path, fps, (width, height))
+            if writer is None:
+                print("❌ 无法创建任何可用的视频写入器，终止处理")
+                return
             print(f"📁 输出视频: {output_path}")
+            print(f"📐 输出分辨率: {width}x{height}, FPS: {fps}, 编码: {used_codec}")
         
         # 处理统计
         frame_count = 0

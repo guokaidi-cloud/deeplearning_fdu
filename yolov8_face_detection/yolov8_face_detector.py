@@ -250,16 +250,32 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
         process_frames = min(process_frames, max_frames)
     
     # 设置视频写入器
+    def _create_writer(path: Path, fps: int, size):
+        """尝试多种编码，提升浏览器可播放性，并给出日志"""
+        width, height = size
+        codec_candidates = [
+            ("avc1", "H.264 (浏览器兼容性好，需系统支持)"),
+            ("mp4v", "MPEG-4 Part 2 (兼容性一般)"),
+            ("XVID", "XVID (备用)"),
+        ]
+        for fourcc_tag, desc in codec_candidates:
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_tag)
+            writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
+            if writer.isOpened():
+                print(f"✅ 使用编码 {fourcc_tag} - {desc}")
+                return writer, fourcc_tag
+            else:
+                print(f"⚠️ 创建写入器失败，尝试下一个编码: {fourcc_tag}")
+        return None, None
+
     writer = None
     if output_path:
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-        if not writer.isOpened():
-            print(f"❌ 无法创建视频写入器，尝试使用H.264编码")
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')
-            writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        writer, used_codec = _create_writer(output_path, fps, (width, height))
+        if writer is None:
+            print("❌ 无法创建任何可用的视频写入器，停止处理")
+            return
         print(f"📁 输出视频: {output_path}")
-        print(f"📐 输出分辨率: {width}x{height}, FPS: {fps}")
+        print(f"📐 输出分辨率: {width}x{height}, FPS: {fps}, 编码: {used_codec}")
     
     # 处理统计
     processed_frames = 0
