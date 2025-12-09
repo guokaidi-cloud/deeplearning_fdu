@@ -1,20 +1,39 @@
 # Opencv demo
 
+```bash
 python yolov8_face_detection/opencv_face_detector.py \
  --input "教室学生机位/深度学习应用++2025-11-22第1-3节+[30657+-+524562]教室流.mp4" \
  --output "test_data/opencv_classroom_1hour_later.mp4" \
  --start-time "3600" --max-frames 1000 --min-neighbors 3 --min-size 15 15
+```
 
 
 # YOLOv8 demo
 
+```bash
 python yolov8_face_detection/yolov8_face_detector.py --input "教室学生机位/深度学习应用++2025-11-22第1-3节+[30657+-+524562]教室流.mp4"\
     --output "test_data/yolov8_classroom_1hour_later.mp4" \
     --max-frames 500 --conf 0.15 --start-time 3600 
+```
 
 
 # YOLOv12 demo 
+```bash
 # --save-faces 目前只是测试使用，会保存大量图片下来
 python yolov8_face_detection/yolov8_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4" \
     --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces.mp4"  \
     --max-frames 100 --conf 0.15 --start-time 6000  --model yolov12l-face --save-faces
+```
+
+
+
+# 前端展示
+# 生成的一些文件在 outputs/ uploads/ 目录下
+- 启动后端
+```bash
+uvicorn api_server:app --host 0.0.0.0 --port 8000
+```
+- 启动前端
+```bash
+cd frontend && python -m http.server 8001
+```
