@@ -28,6 +28,7 @@ python yolov8_face_detection/yolov8_face_detector.py --input "教室学生机位
 
 
 # 前端展示
+# 目前需要安装uvicorn和ffmpeg
 # 生成的一些文件在 outputs/ uploads/ 目录下
 - 启动后端
 ```bash
