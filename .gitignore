@@ -12,3 +12,5 @@ yolov8_face_detection/models/*
 
 **/uploads/*
 **/outputs/*
+
+classmate_photo_processed/*

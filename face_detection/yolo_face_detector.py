@@ -3,6 +3,7 @@
 """
 专门的YOLOv8人脸检测器
 使用专业的yolov8-face模型进行高精度人脸检测
+支持人脸匹配识别功能
 """
 
 import cv2
@@ -14,10 +15,147 @@ import time
 import sys
 import os
 
+# 人脸识别相关导入
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+    print("⚠️  face_recognition 库未安装，人脸识别功能不可用")
+    print("   安装命令: pip install face_recognition")
+
+# 中文字体支持
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("⚠️  PIL 库未安装，中文姓名显示功能不可用")
+    print("   安装命令: pip install Pillow")
+
 # 添加当前目录到路径，以便导入其他脚本
 sys.path.append(str(Path(__file__).parent))
 
 from face_detector import YOLOv8FaceDetector
+
+
+# ======================== 人脸识别配置 ========================
+# 中文字体路径配置（根据系统调整）
+CHINESE_FONT_PATHS = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux (Ubuntu/Debian)
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",  # Linux 备选
+    "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",  # Linux 文泉驿
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",  # Linux 文泉驿正黑
+    "C:/Windows/Fonts/simhei.ttf",  # Windows 黑体
+    "C:/Windows/Fonts/msyh.ttc",  # Windows 微软雅黑
+    "/System/Library/Fonts/PingFang.ttc",  # macOS 苹方
+    "/System/Library/Fonts/STHeiti Light.ttc",  # macOS 华文黑体
+]
+
+# 默认人脸匹配容差
+DEFAULT_FACE_TOLERANCE = 0.6
+
+
+def get_chinese_font(font_size=20):
+    """
+    获取可用的中文字体
+    
+    Args:
+        font_size (int): 字体大小
+        
+    Returns:
+        ImageFont: 字体对象，如果没有找到中文字体则返回默认字体
+    """
+    if not PIL_AVAILABLE:
+        return None
+    
+    for font_path in CHINESE_FONT_PATHS:
+        if Path(font_path).exists():
+            try:
+                return ImageFont.truetype(font_path, font_size)
+            except IOError:
+                continue
+    
+    print("⚠️  未找到中文字体，将使用默认字体（中文可能显示为方块）")
+    return ImageFont.load_default()
+
+
+def build_student_database(photo_folder, verbose=True):
+    """
+    构建学生人脸特征数据库
+    
+    Args:
+        photo_folder (str): 学生照片文件夹路径
+        verbose (bool): 是否输出详细信息
+        
+    Returns:
+        dict: 学生姓名到人脸特征向量的映射
+    """
+    if not FACE_RECOGNITION_AVAILABLE:
+        print("❌ face_recognition 库未安装，无法构建人脸数据库")
+        return {}
+    
+    student_db = {}
+    photo_folder = Path(photo_folder)
+    
+    if not photo_folder.exists():
+        print(f"❌ 照片文件夹不存在: {photo_folder}")
+        return {}
+    
+    for filename in os.listdir(photo_folder):
+        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
+            name = os.path.splitext(filename)[0]
+            photo_path = photo_folder / filename
+            try:
+                image = face_recognition.load_image_file(str(photo_path))
+                face_encodings = face_recognition.face_encodings(image)
+                if face_encodings:
+                    student_db[name] = face_encodings[0]
+                    if verbose:
+                        print(f"✅ 成功加载 {name} 的人脸特征")
+                else:
+                    if verbose:
+                        print(f"⚠️ 未在 {filename} 中检测到人脸，已跳过")
+            except Exception as e:
+                if verbose:
+                    print(f"❌ 处理 {filename} 失败: {str(e)}")
+    
+    print(f"\n📊 人脸数据库构建完成，共加载 {len(student_db)} 名学生的特征\n")
+    return student_db
+
+
+def match_face(face_encoding, student_db, tolerance=DEFAULT_FACE_TOLERANCE):
+    """
+    将人脸特征与数据库进行匹配
+    
+    Args:
+        face_encoding: 待匹配的人脸特征向量
+        student_db (dict): 学生人脸特征数据库
+        tolerance (float): 匹配容差，越小越严格
+        
+    Returns:
+        tuple: (匹配的姓名, 匹配距离)，如果未匹配则返回 ("未知人员", None)
+    """
+    if not FACE_RECOGNITION_AVAILABLE or not student_db:
+        return "未知人员", None
+    
+    known_face_encodings = list(student_db.values())
+    known_face_names = list(student_db.keys())
+    
+    if len(known_face_encodings) == 0:
+        return "未知人员", None
+    
+    # 计算与所有已知人脸的距离
+    face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+    best_match_index = np.argmin(face_distances)
+    best_distance = face_distances[best_match_index]
+    
+    # 检查是否匹配
+    matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=tolerance)
+    if matches[best_match_index]:
+        return known_face_names[best_match_index], best_distance
+    
+    return "未知人员", best_distance
 
 
 def check_and_download_model(model_path, model_name='yolov8n-face'):
@@ -76,10 +214,10 @@ def check_and_download_model(model_path, model_name='yolov8n-face'):
 
 
 class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
-    """专门的YOLOv8人脸检测器，使用优化的人脸检测模型"""
+    """专门的YOLOv8人脸检测器，使用优化的人脸检测模型，支持人脸识别"""
     
     def __init__(self, model_name='yolov8n-face', conf_threshold=0.3, device='auto', 
-                 models_dir='models'):
+                 models_dir='models', student_photos_folder=None, face_tolerance=DEFAULT_FACE_TOLERANCE):
         """
         初始化专门的人脸检测器
         
@@ -88,9 +226,14 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
             conf_threshold (float): 置信度阈值
             device (str): 运行设备
             models_dir (str): 模型目录
+            student_photos_folder (str): 学生照片文件夹路径（用于人脸识别）
+            face_tolerance (float): 人脸匹配容差
         """
         self.model_name = model_name
         self.models_dir = Path(models_dir)
+        self.face_tolerance = face_tolerance
+        self.student_db = {}
+        self.chinese_font = None
         
         # 构造模型路径
         model_path = self.models_dir / f"{model_name}.pt"
@@ -106,17 +249,115 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
             device=device
         )
         
+        # 加载学生人脸数据库
+        if student_photos_folder:
+            self.load_student_database(student_photos_folder)
+        
+        # 加载中文字体
+        if PIL_AVAILABLE:
+            self.chinese_font = get_chinese_font(font_size=20)
+        
         print(f"🎯 专业人脸检测器已就绪")
         print(f"📦 模型: {model_name}")
         print(f"🎚️  置信度阈值: {conf_threshold}")
+        if self.student_db:
+            print(f"👥 人脸识别: 已加载 {len(self.student_db)} 名学生")
     
-    def detect_faces(self, image, visualize=True):
+    def load_student_database(self, photo_folder):
         """
-        检测图片中的人脸（优化版本）
+        加载学生人脸数据库
+        
+        Args:
+            photo_folder (str): 学生照片文件夹路径
+        """
+        self.student_db = build_student_database(photo_folder, verbose=True)
+        return len(self.student_db)
+    
+    def recognize_face_with_bbox(self, full_image, bbox):
+        """
+        使用YOLO检测到的边界框直接在原图上识别人脸
+        
+        Args:
+            full_image: 完整图像 (BGR格式)
+            bbox: YOLO检测到的边界框 [x1, y1, x2, y2]
+            
+        Returns:
+            tuple: (姓名, 匹配距离)
+        """
+        if not FACE_RECOGNITION_AVAILABLE or not self.student_db:
+            return "未知人员", None
+        
+        # 转换为RGB
+        if len(full_image.shape) == 3 and full_image.shape[2] == 3:
+            rgb_image = cv2.cvtColor(full_image, cv2.COLOR_BGR2RGB)
+        else:
+            rgb_image = full_image
+        
+        # 将YOLO的 [x1, y1, x2, y2] 转换为 face_recognition 的 (top, right, bottom, left) 格式
+        x1, y1, x2, y2 = bbox
+        face_location = (y1, x2, y2, x1)  # (top, right, bottom, left)
+        
+        # 提取人脸特征（使用YOLO检测到的位置，跳过face_recognition的人脸检测）
+        try:
+            face_encodings = face_recognition.face_encodings(rgb_image, known_face_locations=[face_location])
+            if face_encodings:
+                return match_face(face_encodings[0], self.student_db, self.face_tolerance)
+        except Exception as e:
+            print(f"⚠️  人脸识别失败: {e}")
+        
+        return "未知人员", None
+    
+    def draw_chinese_text(self, image, text, position, font_color=(255, 255, 255), bg_color=(0, 0, 0)):
+        """
+        在图像上绘制中文文本
+        
+        Args:
+            image: OpenCV图像 (BGR)
+            text: 要绘制的文本
+            position: 文本位置 (x, y)
+            font_color: 字体颜色 (R, G, B)
+            bg_color: 背景颜色 (R, G, B)
+            
+        Returns:
+            处理后的图像
+        """
+        if not PIL_AVAILABLE or self.chinese_font is None:
+            # 如果PIL不可用，使用OpenCV绘制（中文会显示为方块）
+            cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.6, font_color[::-1], 2)
+            return image
+        
+        # 转换为PIL图像
+        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_image)
+        
+        x, y = position
+        
+        # 获取文本边界框
+        bbox = draw.textbbox((0, 0), text, font=self.chinese_font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        # 绘制背景矩形
+        padding = 5
+        draw.rectangle(
+            [(x, y), (x + text_width + padding * 2, y + text_height + padding * 2)],
+            fill=bg_color
+        )
+        
+        # 绘制文本
+        draw.text((x + padding, y + padding), text, font=self.chinese_font, fill=font_color)
+        
+        # 转回OpenCV格式
+        return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    
+    def detect_faces(self, image, visualize=True, recognize=True):
+        """
+        检测图片中的人脸（优化版本，支持人脸识别）
         
         Args:
             image: 输入图像
             visualize (bool): 是否可视化检测结果
+            recognize (bool): 是否进行人脸识别
             
         Returns:
             tuple: (检测结果, 可视化图像)
@@ -145,41 +386,98 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                     confidence = box.conf[0].cpu().numpy()
                     
+                    # 确保坐标在图像范围内
+                    x1_int = max(0, int(x1))
+                    y1_int = max(0, int(y1))
+                    x2_int = min(original_shape[1], int(x2))
+                    y2_int = min(original_shape[0], int(y2))
+                    
                     face_info = {
-                        'bbox': [int(x1), int(y1), int(x2), int(y2)],
-                        'confidence': float(confidence)
+                        'bbox': [x1_int, y1_int, x2_int, y2_int],
+                        'confidence': float(confidence),
+                        'name': "未知人员",
+                        'match_distance': None
                     }
+                    
+                    # 进行人脸识别（使用YOLO检测到的边界框位置）
+                    if recognize and self.student_db and FACE_RECOGNITION_AVAILABLE:
+                        # 确保人脸区域足够大
+                        face_width = x2_int - x1_int
+                        face_height = y2_int - y1_int
+                        if face_width > 20 and face_height > 20:
+                            # 使用YOLO的边界框直接在原图上提取特征
+                            name, distance = self.recognize_face_with_bbox(
+                                original_image, 
+                                [x1_int, y1_int, x2_int, y2_int]
+                            )
+                            face_info['name'] = name
+                            face_info['match_distance'] = distance
+                    
                     faces.append(face_info)
                     
                     if visualize:
-                        # 绘制边界框（使用更显眼的颜色）
-                        cv2.rectangle(vis_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
+                        name = face_info['name']
+                        is_known = name != "未知人员"
                         
-                        # 添加置信度标签（使用更小的字体）
-                        label = f'Face: {confidence:.3f}'
-                        font_scale = 0.4  # 字体缩放因子
-                        thickness = 1     # 线条粗细
-                        padding = 4       # padding
-                        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-                        cv2.rectangle(vis_image, (int(x1), int(y1) - label_size[1] - padding), 
-                                    (int(x1) + label_size[0], int(y1)), (0, 255, 255), -1)
-                        cv2.putText(vis_image, label, (int(x1), int(y1) - padding // 2), 
-                                  cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+                        # 根据是否识别成功选择颜色
+                        box_color = (0, 255, 0) if is_known else (0, 255, 255)  # 绿色=已识别, 黄色=未识别
+                        
+                        # 绘制边界框
+                        cv2.rectangle(vis_image, (x1_int, y1_int), (x2_int, y2_int), box_color, 2)
+                        
+                        # 构建标签文本
+                        if is_known:
+                            label = f'{name} ({confidence:.2f})'
+                        else:
+                            label = f'Face: {confidence:.3f}'
+                        
+                        # 绘制标签（支持中文）
+                        label_y = max(0, y1_int - 5)
+                        
+                        if is_known and PIL_AVAILABLE and self.chinese_font:
+                            # 使用中文字体绘制姓名
+                            vis_image = self.draw_chinese_text(
+                                vis_image, 
+                                name, 
+                                (x1_int, label_y - 25),
+                                font_color=(255, 255, 255),
+                                bg_color=(0, 128, 0)
+                            )
+                        else:
+                            # 使用OpenCV绘制
+                            font_scale = 0.4
+                            thickness = 1
+                            padding = 4
+                            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
+                            cv2.rectangle(vis_image, (x1_int, y1_int - label_size[1] - padding), 
+                                        (x1_int + label_size[0], y1_int), box_color, -1)
+                            cv2.putText(vis_image, label, (x1_int, y1_int - padding // 2), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
         
         return faces, vis_image
 
 
 def process_video_with_yolov8(detector, video_path, output_path=None, show_video=False, 
                               max_frames=None, start_time=None, end_time=None, save_faces=True,
-                              save_interval_sec=3.0):
+                              save_interval_sec=3.0, enable_recognition=True):
     """
-    使用YOLOv8处理视频文件进行人脸检测
+    使用YOLOv8处理视频文件进行人脸检测和识别
     
     Args:
+        detector: YOLOv8人脸检测器实例
+        video_path: 视频文件路径
+        output_path: 输出视频路径
+        show_video: 是否显示视频
+        max_frames: 最大处理帧数
+        start_time: 开始时间
+        end_time: 结束时间
         save_faces (bool): 是否保存裁剪的人脸到data目录
         save_interval_sec (float): 保存人脸的时间间隔（秒），用于降频保存
+        enable_recognition (bool): 是否启用人脸识别
     """
     print(f"🎥 开始处理视频: {video_path}")
+    if enable_recognition and hasattr(detector, 'student_db') and detector.student_db:
+        print(f"👥 人脸识别: 已启用，数据库中有 {len(detector.student_db)} 人")
     
     # 创建data目录用于保存人脸
     if save_faces:
@@ -304,9 +602,12 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 print(f"⏹️  已达到最大处理帧数: {max_frames}")
                 break
             
-            # 检测人脸
-            faces, vis_frame = detector.detect_faces(frame, visualize=True)
+            # 检测人脸（启用识别功能）
+            faces, vis_frame = detector.detect_faces(frame, visualize=True, recognize=enable_recognition)
             total_faces += len(faces)
+            
+            # 统计识别结果
+            recognized_names = [f['name'] for f in faces if f.get('name') and f['name'] != "未知人员"]
 
             # 确保vis_frame的分辨率与原始frame一致
             if vis_frame.shape[:2] != frame.shape[:2]:
@@ -364,9 +665,16 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 f'Time: {hours:02d}:{minutes:02d}:{seconds:02d} (Frame: {current_frame})',
                 f'Progress: {processed_frames+1}/{process_frames}',
                 f'Current Faces: {len(faces)}',
-                f'Total Faces: {total_faces}',
+                f'Recognized: {len(recognized_names)}',
                 f'Processing FPS: {current_fps:.1f}'
             ]
+            
+            # 如果有识别到的人，显示姓名
+            if recognized_names:
+                names_str = ', '.join(recognized_names[:3])  # 最多显示3个名字
+                if len(recognized_names) > 3:
+                    names_str += f'... (+{len(recognized_names)-3})'
+                stats_text.append(f'Names: {names_str}')
             
             for i, text in enumerate(stats_text):
                 y_pos = 30 + i * 25
@@ -449,6 +757,12 @@ def main():
                        help='不保存裁剪的人脸')
     parser.add_argument('--save-interval-sec', type=float, default=3.0,
                        help='保存人脸的时间间隔（秒），用于降频保存，默认3秒')
+    parser.add_argument('--student-photos', type=str, default=None,
+                       help='学生照片文件夹路径（用于人脸识别）')
+    parser.add_argument('--face-tolerance', type=float, default=DEFAULT_FACE_TOLERANCE,
+                       help=f'人脸匹配容差，越小越严格，默认{DEFAULT_FACE_TOLERANCE}')
+    parser.add_argument('--no-recognition', action='store_true',
+                       help='禁用人脸识别功能')
     
     args = parser.parse_args()
     
@@ -459,8 +773,12 @@ def main():
             model_name=args.model,
             conf_threshold=args.conf,
             device=args.device,
-            models_dir=args.models_dir
+            models_dir=args.models_dir,
+            student_photos_folder=args.student_photos,
+            face_tolerance=args.face_tolerance
         )
+        
+        enable_recognition = not args.no_recognition and len(detector.student_db) > 0
         
         # 检查输入文件
         input_path = Path(args.input)
@@ -485,13 +803,14 @@ def main():
                 start_time=args.start_time,
                 end_time=args.end_time,
                 save_faces=args.save_faces,
-                save_interval_sec=args.save_interval_sec
+                save_interval_sec=args.save_interval_sec,
+                enable_recognition=enable_recognition
             )
         
         # 处理图片文件
         elif input_path.is_file() and input_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
             image = cv2.imread(str(input_path))
-            faces, vis_image = detector.detect_faces(image, visualize=True)
+            faces, vis_image = detector.detect_faces(image, visualize=True, recognize=enable_recognition)
             
             # 保存裁剪的人脸
             if args.save_faces and len(faces) > 0:
@@ -526,10 +845,19 @@ def main():
             cv2.imwrite(str(output_path), vis_image)
             
             print(f"✅ 检测到 {len(faces)} 个人脸")
+            recognized_count = 0
             for i, face in enumerate(faces):
                 bbox = face['bbox']
                 conf = face['confidence']
-                print(f"   人脸{i+1}: 坐标{bbox}, 置信度{conf:.3f}")
+                name = face.get('name', '未知人员')
+                if name != '未知人员':
+                    recognized_count += 1
+                    print(f"   人脸{i+1}: {name}, 坐标{bbox}, 置信度{conf:.3f}")
+                else:
+                    print(f"   人脸{i+1}: 未知人员, 坐标{bbox}, 置信度{conf:.3f}")
+            
+            if enable_recognition:
+                print(f"📊 识别结果: {recognized_count}/{len(faces)} 人被识别")
             
             print(f"📁 结果已保存到: {output_path}")
             
