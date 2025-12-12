@@ -14,6 +14,7 @@ import argparse
 import time
 import sys
 import os
+from collections import defaultdict
 
 # 人脸识别相关导入
 try:
@@ -214,10 +215,11 @@ def check_and_download_model(model_path, model_name='yolov8n-face'):
 
 
 class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
-    """专门的YOLOv8人脸检测器，使用优化的人脸检测模型，支持人脸识别"""
+    """专门的YOLOv8人脸检测器，使用优化的人脸检测模型，支持人脸识别和ByteTrack跟踪"""
     
     def __init__(self, model_name='yolov8n-face', conf_threshold=0.3, device='auto', 
-                 models_dir='models', student_photos_folder=None, face_tolerance=DEFAULT_FACE_TOLERANCE):
+                 models_dir='models', student_photos_folder=None, face_tolerance=DEFAULT_FACE_TOLERANCE,
+                 enable_tracking=False, tracker_type='bytetrack', track_buffer=30):
         """
         初始化专门的人脸检测器
         
@@ -228,12 +230,18 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
             models_dir (str): 模型目录
             student_photos_folder (str): 学生照片文件夹路径（用于人脸识别）
             face_tolerance (float): 人脸匹配容差
+            enable_tracking (bool): 是否启用跟踪
+            tracker_type (str): 跟踪器类型 ('bytetrack' 或 'botsort')
+            track_buffer (int): 跟踪缓冲帧数（轨迹最大丢失帧数）
         """
         self.model_name = model_name
         self.models_dir = Path(models_dir)
         self.face_tolerance = face_tolerance
         self.student_db = {}
         self.chinese_font = None
+        self.enable_tracking = enable_tracking
+        self.tracker_type = tracker_type
+        self.track_buffer = track_buffer
         
         # 构造模型路径
         model_path = self.models_dir / f"{model_name}.pt"
@@ -260,6 +268,10 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         print(f"🎯 专业人脸检测器已就绪")
         print(f"📦 模型: {model_name}")
         print(f"🎚️  置信度阈值: {conf_threshold}")
+        if enable_tracking:
+            print(f"🔄 跟踪器: {tracker_type.upper()} (buffer={track_buffer})")
+        else:
+            print(f"🔄 跟踪: 已禁用")
         if self.student_db:
             print(f"👥 人脸识别: 已加载 {len(self.student_db)} 名学生")
     
@@ -349,6 +361,79 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         
         # 转回OpenCV格式
         return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    
+    def detect_and_track(self, image, recognize=True, persist=True):
+        """
+        使用YOLO内置的ByteTrack/BotSORT进行检测和跟踪
+        
+        Args:
+            image: 输入图像
+            recognize (bool): 是否进行人脸识别
+            persist (bool): 是否持久化跟踪ID（跨帧保持ID）
+            
+        Returns:
+            list: 跟踪结果列表，包含track_id
+        """
+        if isinstance(image, np.ndarray):
+            original_image = image.copy()
+            original_shape = image.shape[:2]
+        else:
+            original_image = np.array(image)
+            original_shape = original_image.shape[:2]
+        
+        # 使用YOLO的track方法进行跟踪
+        results = self.model.track(
+            original_image, 
+            conf=self.conf_threshold,
+            persist=persist,
+            tracker=f"{self.tracker_type}.yaml",
+            verbose=False
+        )
+        
+        tracked_faces = []
+        
+        for result in results:
+            boxes = result.boxes
+            if boxes is not None and len(boxes) > 0:
+                for box in boxes:
+                    # 获取边界框坐标
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    confidence = float(box.conf[0].cpu().numpy())
+                    
+                    # 获取跟踪ID
+                    track_id = None
+                    if box.id is not None:
+                        track_id = int(box.id[0].cpu().numpy())
+                    
+                    # 确保坐标在图像范围内
+                    x1_int = max(0, int(x1))
+                    y1_int = max(0, int(y1))
+                    x2_int = min(original_shape[1], int(x2))
+                    y2_int = min(original_shape[0], int(y2))
+                    
+                    face_info = {
+                        'bbox': [x1_int, y1_int, x2_int, y2_int],
+                        'confidence': confidence,
+                        'track_id': track_id,
+                        'name': "未知人员",
+                        'match_distance': None
+                    }
+                    
+                    # 进行人脸识别
+                    if recognize and self.student_db and FACE_RECOGNITION_AVAILABLE:
+                        face_width = x2_int - x1_int
+                        face_height = y2_int - y1_int
+                        if face_width > 20 and face_height > 20:
+                            name, distance = self.recognize_face_with_bbox(
+                                original_image, 
+                                [x1_int, y1_int, x2_int, y2_int]
+                            )
+                            face_info['name'] = name
+                            face_info['match_distance'] = distance
+                    
+                    tracked_faces.append(face_info)
+        
+        return tracked_faces
     
     def detect_faces(self, image, visualize=True, recognize=True):
         """
@@ -459,9 +544,9 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
 
 def process_video_with_yolov8(detector, video_path, output_path=None, show_video=False, 
                               max_frames=None, start_time=None, end_time=None, save_faces=True,
-                              save_interval_sec=3.0, enable_recognition=True):
+                              save_interval_sec=5.0, enable_recognition=True, enable_tracking=True):
     """
-    使用YOLOv8处理视频文件进行人脸检测和识别
+    使用YOLOv8处理视频文件进行人脸检测、识别和跟踪
     
     Args:
         detector: YOLOv8人脸检测器实例
@@ -474,10 +559,19 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
         save_faces (bool): 是否保存裁剪的人脸到data目录
         save_interval_sec (float): 保存人脸的时间间隔（秒），用于降频保存
         enable_recognition (bool): 是否启用人脸识别
+        enable_tracking (bool): 是否启用跟踪 (ByteTrack/BotSORT)
     """
     print(f"🎥 开始处理视频: {video_path}")
     if enable_recognition and hasattr(detector, 'student_db') and detector.student_db:
         print(f"👥 人脸识别: 已启用，数据库中有 {len(detector.student_db)} 人")
+    
+    # 检查跟踪功能
+    tracking_enabled = enable_tracking and hasattr(detector, 'enable_tracking') and detector.enable_tracking
+    if tracking_enabled:
+        tracker_type = getattr(detector, 'tracker_type', 'bytetrack')
+        print(f"🔄 跟踪: 已启用 ({tracker_type.upper()})")
+    else:
+        print(f"🔄 跟踪: 已禁用")
     
     # 创建data目录用于保存人脸
     if save_faces:
@@ -583,6 +677,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
     total_faces = 0
     process_start_time = time.time()
     last_save_time = -1e9  # 控制保存频率的时间戳
+    track_save_counts = defaultdict(int)  # 用于按track_id保存计数
     
     try:
         while True:
@@ -602,12 +697,59 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 print(f"⏹️  已达到最大处理帧数: {max_frames}")
                 break
             
-            # 检测人脸（启用识别功能）
-            faces, vis_frame = detector.detect_faces(frame, visualize=True, recognize=enable_recognition)
+            # 检测人脸（根据是否启用跟踪选择不同方法）
+            if tracking_enabled:
+                # 使用YOLO内置的ByteTrack/BotSORT跟踪
+                faces = detector.detect_and_track(frame, recognize=enable_recognition, persist=True)
+            else:
+                # 仅检测，不跟踪
+                faces, _ = detector.detect_faces(frame, visualize=False, recognize=enable_recognition)
+            
             total_faces += len(faces)
             
             # 统计识别结果
             recognized_names = [f['name'] for f in faces if f.get('name') and f['name'] != "未知人员"]
+            
+            # 自定义可视化（支持跟踪ID显示）
+            vis_frame = frame.copy()
+            for face in faces:
+                x1, y1, x2, y2 = face['bbox']
+                confidence = face['confidence']
+                name = face.get('name', '未知人员')
+                track_id = face.get('track_id', None)
+                is_known = name != "未知人员"
+                
+                # 根据是否识别成功选择颜色
+                if tracking_enabled and track_id is not None:
+                    # 跟踪模式：使用track_id生成颜色
+                    color_hash = hash(str(track_id)) % 0xFFFFFF
+                    box_color = ((color_hash >> 16) & 0xFF, (color_hash >> 8) & 0xFF, color_hash & 0xFF)
+                    # 确保颜色足够亮
+                    box_color = tuple(max(c, 50) for c in box_color)
+                else:
+                    box_color = (0, 255, 0) if is_known else (0, 255, 255)  # 绿色=已识别, 黄色=未识别
+                
+                # 绘制边界框
+                cv2.rectangle(vis_frame, (x1, y1), (x2, y2), box_color, 2)
+                
+                # 构建标签文本（避免中文显示为问号）
+                if tracking_enabled and track_id is not None:
+                    # 跟踪模式：显示ID和置信度
+                    label = f'ID:{track_id} ({confidence:.2f})'
+                else:
+                    # 非跟踪模式：只显示置信度
+                    label = f'Face ({confidence:.2f})'
+                
+                # 绘制标签
+                label_y = max(0, y1 - 5)
+                font_scale = 0.5
+                thickness = 1
+                padding = 4
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
+                cv2.rectangle(vis_frame, (x1, y1 - label_size[1] - padding * 2), 
+                            (x1 + label_size[0] + padding, y1), box_color, -1)
+                cv2.putText(vis_frame, label, (x1 + padding // 2, y1 - padding), 
+                          cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
 
             # 确保vis_frame的分辨率与原始frame一致
             if vis_frame.shape[:2] != frame.shape[:2]:
@@ -637,6 +779,8 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                     for face_idx, face in enumerate(faces):
                         x1, y1, x2, y2 = face['bbox']
                         confidence = face.get('confidence', 0.0)
+                        track_id = face.get('track_id', None)
+                        name = face.get('name', '未知人员')
                         
                         # 确保坐标在图像范围内
                         x1 = max(0, int(x1))
@@ -649,8 +793,21 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                         
                         # 只保存有效的人脸（尺寸不能太小）
                         if face_crop.shape[0] > 20 and face_crop.shape[1] > 20:
-                            face_filename = f"frame_{current_frame:06d}_face_{face_idx:02d}_conf_{confidence:.3f}.jpg"
-                            face_path = data_dir / face_filename
+                            # 根据是否有track_id决定保存路径
+                            if track_id is not None:
+                                # 有track_id：按ID分目录保存
+                                if name != "未知人员":
+                                    id_dir = data_dir / f"id_{int(track_id):04d}_{name}"
+                                else:
+                                    id_dir = data_dir / f"id_{int(track_id):04d}"
+                                id_dir.mkdir(parents=True, exist_ok=True)
+                                track_save_counts[track_id] += 1
+                                face_filename = f"frame_{current_frame:06d}_id_{int(track_id):04d}_n_{track_save_counts[track_id]:04d}.jpg"
+                                face_path = id_dir / face_filename
+                            else:
+                                # 无track_id：按帧号和人脸索引保存
+                                face_filename = f"frame_{current_frame:06d}_face_{face_idx:02d}_conf_{confidence:.3f}.jpg"
+                                face_path = data_dir / face_filename
                             cv2.imwrite(str(face_path), face_crop)
             
             # 添加统计信息
@@ -755,14 +912,25 @@ def main():
                        help='保存裁剪的人脸到原始数据的data目录')
     parser.add_argument('--no-save-faces', dest='save_faces', action='store_false',
                        help='不保存裁剪的人脸')
-    parser.add_argument('--save-interval-sec', type=float, default=3.0,
-                       help='保存人脸的时间间隔（秒），用于降频保存，默认3秒')
+    parser.add_argument('--save-interval-sec', type=float, default=5.0,
+                       help='保存人脸的时间间隔（秒），用于降频保存，默认5秒')
     parser.add_argument('--student-photos', type=str, default=None,
                        help='学生照片文件夹路径（用于人脸识别）')
     parser.add_argument('--face-tolerance', type=float, default=DEFAULT_FACE_TOLERANCE,
                        help=f'人脸匹配容差，越小越严格，默认{DEFAULT_FACE_TOLERANCE}')
     parser.add_argument('--no-recognition', action='store_true',
                        help='禁用人脸识别功能')
+    
+    # 跟踪相关参数 (使用YOLO内置的ByteTrack/BotSORT)
+    parser.add_argument('--track', action='store_true', default=False,
+                       help='启用跟踪功能 (ByteTrack/BotSORT)')
+    parser.add_argument('--no-track', dest='track', action='store_false',
+                       help='禁用跟踪功能')
+    parser.add_argument('--tracker', type=str, default='bytetrack',
+                       choices=['bytetrack', 'botsort'],
+                       help='跟踪器类型: bytetrack(默认,快速) 或 botsort(更精确)')
+    parser.add_argument('--track-buffer', type=int, default=30,
+                       help='跟踪缓冲帧数（轨迹最大丢失帧数），默认30')
     
     args = parser.parse_args()
     
@@ -775,10 +943,14 @@ def main():
             device=args.device,
             models_dir=args.models_dir,
             student_photos_folder=args.student_photos,
-            face_tolerance=args.face_tolerance
+            face_tolerance=args.face_tolerance,
+            enable_tracking=args.track,
+            tracker_type=args.tracker,
+            track_buffer=args.track_buffer
         )
         
         enable_recognition = not args.no_recognition and len(detector.student_db) > 0
+        enable_tracking = args.track
         
         # 检查输入文件
         input_path = Path(args.input)
@@ -804,7 +976,8 @@ def main():
                 end_time=args.end_time,
                 save_faces=args.save_faces,
                 save_interval_sec=args.save_interval_sec,
-                enable_recognition=enable_recognition
+                enable_recognition=enable_recognition,
+                enable_tracking=enable_tracking
             )
         
         # 处理图片文件

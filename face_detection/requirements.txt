@@ -28,6 +28,9 @@ scikit-learn>=0.24.0             # 机器学习库
 albumentations>=1.0.0             # 图像增强库
 imgaug>=0.4.0                    # 图像增强库
 
+# 目标跟踪 (ultralytics内置ByteTrack/BotSORT)
+lap>=0.5.12                      # 线性分配问题求解器，ByteTrack/BotSORT跟踪必需
+
 # 进度条和用户界面
 tqdm>=4.60.0                     # 进度条库
 rich>=10.0.0                     # 富文本和美观输出
