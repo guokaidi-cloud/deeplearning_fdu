@@ -218,7 +218,7 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
     """专门的YOLOv8人脸检测器，使用优化的人脸检测模型，支持人脸识别和ByteTrack跟踪"""
     
     def __init__(self, model_name='yolov8n-face', conf_threshold=0.3, device='auto', 
-                 models_dir='models', student_photos_folder=None, face_tolerance=DEFAULT_FACE_TOLERANCE,
+                 models_dir='models', model_path=None, student_photos_folder=None, face_tolerance=DEFAULT_FACE_TOLERANCE,
                  enable_tracking=False, tracker_type='bytetrack', track_buffer=30):
         """
         初始化专门的人脸检测器
@@ -228,6 +228,7 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
             conf_threshold (float): 置信度阈值
             device (str): 运行设备
             models_dir (str): 模型目录
+            model_path (str|None): 自定义模型路径（优先于 model_name/models_dir）
             student_photos_folder (str): 学生照片文件夹路径（用于人脸识别）
             face_tolerance (float): 人脸匹配容差
             enable_tracking (bool): 是否启用跟踪
@@ -243,12 +244,20 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         self.tracker_type = tracker_type
         self.track_buffer = track_buffer
         
-        # 构造模型路径
-        model_path = self.models_dir / f"{model_name}.pt"
+        # 构造模型路径，优先使用自定义路径
+        if model_path:
+            model_path = Path(model_path)
+            custom_model = True
+        else:
+            model_path = self.models_dir / f"{model_name}.pt"
+            custom_model = False
         
-        # 检查并下载模型
-        if not check_and_download_model(model_path, model_name):
-            raise RuntimeError(f"无法获取人脸检测模型: {model_name}")
+        # 检查并下载/验证模型
+        if not model_path.exists():
+            if custom_model:
+                raise RuntimeError(f"自定义模型文件不存在: {model_path}")
+            if not check_and_download_model(model_path, model_name):
+                raise RuntimeError(f"无法获取人脸检测模型: {model_name}")
         
         # 使用父类初始化
         super().__init__(
@@ -902,6 +911,8 @@ def main():
     parser.add_argument('--model', type=str, default='yolov8n-face',
                        choices=['yolov8n-face', 'yolov12l-face'],
                        help='人脸检测模型名称')
+    parser.add_argument('--model-path', type=str, default=None,
+                       help='自定义模型文件路径（优先使用该路径，存在则不再下载）')
     parser.add_argument('--conf', type=float, default=0.3, 
                        help='置信度阈值')
     parser.add_argument('--device', type=str, default='auto', 
@@ -942,6 +953,7 @@ def main():
             conf_threshold=args.conf,
             device=args.device,
             models_dir=args.models_dir,
+            model_path=args.model_path,
             student_photos_folder=args.student_photos,
             face_tolerance=args.face_tolerance,
             enable_tracking=args.track,

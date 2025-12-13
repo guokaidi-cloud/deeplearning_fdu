@@ -31,6 +31,18 @@ python face_detection/yolo_face_detector.py --input "教室学生机位/深度�
    --model yolov12l-face --save-faces --student-photos ./classmate_photo_processed \
 --track  --save-interval-sec 3
 
+python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
+   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_before.mp4" --conf 0.3 --start-time 9000 --max-frames 500 \
+   --student-photos ./classmate_photo_processed \
+   --save-faces --track  --save-interval-sec 3 \
+   --model yolov12l-face
+
+python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
+   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_after.mp4" --conf 0.3 --start-time 9000 --max-frames 500 \
+   --student-photos ./classmate_photo_processed \
+   --save-faces --track  --save-interval-sec 3 \
+   --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune3/weights/best.pt
+
 
 
 # 前端展示
