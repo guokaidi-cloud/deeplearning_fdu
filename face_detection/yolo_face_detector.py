@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-YOLOv8 人脸检测器 + CLIP 人脸识别
-使用 YOLO 检测人脸，CLIP 匹配识别最相似的人
+YOLOv8 人脸检测器 + InsightFace 人脸识别
+使用 YOLO 检测人脸，InsightFace 匹配识别最相似的人
 """
 
 import cv2
@@ -25,7 +25,17 @@ except ImportError:
 sys.path.append(str(Path(__file__).parent))
 
 from face_detector import YOLOv8FaceDetector
-from clip_face_matcher import ClipFaceMatcher, CLIP_AVAILABLE
+
+# 导入 InsightFace 匹配器
+try:
+    from insightface_matcher import InsightFaceMatcher, INSIGHTFACE_AVAILABLE
+except ImportError:
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from insightface_matcher import InsightFaceMatcher, INSIGHTFACE_AVAILABLE
+    except ImportError:
+        INSIGHTFACE_AVAILABLE = False
+        InsightFaceMatcher = None
 
 # ======================== 配置 ========================
 CHINESE_FONT_PATHS = [
@@ -37,6 +47,68 @@ CHINESE_FONT_PATHS = [
 ]
 
 DEFAULT_SIMILARITY_THRESHOLD = 0.65
+
+# 加载中文字体（用于独立函数）
+def _load_chinese_font(size=20):
+    """加载中文字体"""
+    if not PIL_AVAILABLE:
+        return None
+    for font_path in CHINESE_FONT_PATHS:
+        if Path(font_path).exists():
+            try:
+                return ImageFont.truetype(font_path, size)
+            except Exception:
+                continue
+    return None
+
+def draw_text_pil(image, text, position, font_color=(255, 255, 255), bg_color=(0, 128, 0), font_size=20):
+    """
+    使用 PIL 在图像上绘制中文文本
+    
+    Args:
+        image: OpenCV图像 (BGR)
+        text: 要绘制的文本
+        position: 文本位置 (x, y) - 左上角
+        font_color: 字体颜色 (R, G, B)
+        bg_color: 背景颜色 (R, G, B)
+        font_size: 字体大小
+    
+    Returns:
+        处理后的图像
+    """
+    if not PIL_AVAILABLE:
+        # 回退到 OpenCV
+        cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, font_color[::-1], 1)
+        return image
+    
+    font = _load_chinese_font(font_size)
+    if font is None:
+        cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, font_color[::-1], 1)
+        return image
+    
+    # 转换为 PIL 图像
+    pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_image)
+    
+    x, y = position
+    
+    # 获取文本边界框
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # 绘制背景矩形
+    padding = 3
+    draw.rectangle(
+        [(x, y), (x + text_width + padding * 2, y + text_height + padding * 2)],
+        fill=bg_color
+    )
+    
+    # 绘制文本
+    draw.text((x + padding, y + padding), text, font=font, fill=font_color)
+    
+    # 转回 OpenCV 格式
+    return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
 
 def get_chinese_font(font_size=20):
@@ -121,14 +193,14 @@ def check_and_download_model(model_path, model_name='yolov8n-face'):
 class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
     """
     专门的YOLOv8人脸检测器
-    使用优化的人脸检测模型，支持基于CLIP的人脸匹配识别和ByteTrack跟踪
+    使用优化的人脸检测模型，支持基于 InsightFace 的人脸匹配识别和 ByteTrack 跟踪
     """
     
     def __init__(self, model_name='yolov8n-face', conf_threshold=0.3, device='auto', 
                  models_dir='models', model_path=None,
-                 # CLIP 人脸匹配参数
+                 # 人脸识别参数
                  photo_folder=None, similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD, 
-                 clip_model_name='ViT-B/32',
+                 insightface_model_name='buffalo_l',
                  # 跟踪参数
                  enable_tracking=False, tracker_type='bytetrack', track_buffer=30):
         """
@@ -140,9 +212,9 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
             device (str): 运行设备 (auto/cuda/cpu)
             models_dir (str): 模型目录
             model_path (str|None): 自定义模型路径（优先于 model_name/models_dir）
-            photo_folder (str): 人脸照片库文件夹路径（用于CLIP匹配识别）
-            similarity_threshold (float): CLIP相似度阈值，低于此值为"未知人员"
-            clip_model_name (str): CLIP模型名称 (ViT-B/32, ViT-B/16, ViT-L/14)
+            photo_folder (str): 人脸照片库文件夹路径（用于人脸识别）
+            similarity_threshold (float): 相似度阈值，低于此值为"未知人员"
+            insightface_model_name (str): InsightFace模型名称 (buffalo_l, buffalo_s, buffalo_sc)
             enable_tracking (bool): 是否启用跟踪
             tracker_type (str): 跟踪器类型 ('bytetrack' 或 'botsort')
             track_buffer (int): 跟踪缓冲帧数（轨迹最大丢失帧数）
@@ -154,8 +226,8 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         self.tracker_type = tracker_type
         self.track_buffer = track_buffer
         
-        # CLIP 人脸匹配器
-        self.face_matcher: Optional[ClipFaceMatcher] = None
+        # InsightFace 人脸匹配器
+        self.face_matcher = None
         
         # 构造模型路径，优先使用自定义路径
         if model_path:
@@ -183,20 +255,34 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         if PIL_AVAILABLE:
             self.chinese_font = get_chinese_font(font_size=20)
         
-        # 初始化 CLIP 人脸匹配器
-        if photo_folder and CLIP_AVAILABLE:
-            try:
-                self.face_matcher = ClipFaceMatcher(
-                    photo_folder=photo_folder,
-                    threshold=similarity_threshold,
-                    clip_model_name=clip_model_name,
-                    device=device
-                )
-            except Exception as e:
-                print(f"⚠️ 初始化CLIP人脸匹配器失败: {e}")
-                self.face_matcher = None
-        elif photo_folder and not CLIP_AVAILABLE:
-            print("⚠️ CLIP 库未安装，人脸识别功能不可用")
+        # 初始化 InsightFace 人脸匹配器
+        if photo_folder:
+            if INSIGHTFACE_AVAILABLE:
+                try:
+                    # 解析 device 参数
+                    if device == 'auto':
+                        import torch
+                        ctx_id = 0 if torch.cuda.is_available() else -1
+                    elif device == 'cuda':
+                        ctx_id = 0
+                    else:
+                        ctx_id = -1
+                    
+                    self.face_matcher = InsightFaceMatcher(
+                        photo_folder=photo_folder,
+                        threshold=similarity_threshold,
+                        model_name=insightface_model_name,
+                        ctx_id=ctx_id
+                    )
+                    print(f"👥 InsightFace人脸匹配: 已加载 {self.face_matcher.num_people} 人")
+                except Exception as e:
+                    print(f"⚠️ 初始化InsightFace人脸匹配器失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self.face_matcher = None
+            else:
+                print("⚠️ InsightFace 库未安装，人脸识别功能不可用")
+                print("   安装命令: pip install insightface onnxruntime-gpu")
         
         self.model_path = model_path  # 记录实际使用的模型路径
         
@@ -211,12 +297,10 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
             print(f"🔄 跟踪器: {tracker_type.upper()} (buffer={track_buffer})")
         else:
             print(f"🔄 跟踪: 已禁用")
-        if self.face_matcher:
-            print(f"👥 CLIP人脸匹配: 已加载 {self.face_matcher.num_people} 人")
     
     def load_photo_database(self, photo_folder):
         """
-        加载人脸照片库（用于CLIP匹配）
+        加载人脸照片库
         
         Args:
             photo_folder (str): 照片文件夹路径
@@ -224,18 +308,20 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         Returns:
             int: 加载的人数
         """
-        if not CLIP_AVAILABLE:
-            print("❌ CLIP 库未安装，无法加载人脸库")
+        if not INSIGHTFACE_AVAILABLE:
+            print("❌ InsightFace 库未安装，无法加载人脸库")
             return 0
         
         if self.face_matcher is None:
-            self.face_matcher = ClipFaceMatcher(threshold=DEFAULT_SIMILARITY_THRESHOLD)
+            self.face_matcher = InsightFaceMatcher(threshold=DEFAULT_SIMILARITY_THRESHOLD)
         
         return self.face_matcher.load_photo_database(photo_folder)
     
     def recognize_face_with_bbox(self, full_image, bbox):
         """
-        使用CLIP匹配识别人脸
+        使用 InsightFace 匹配识别人脸
+        
+        直接使用 YOLO bbox 裁剪人脸区域进行识别
         
         Args:
             full_image: 完整图像 (BGR格式)
@@ -247,15 +333,14 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         if self.face_matcher is None:
             return "未知人员", None
         
-        x1, y1, x2, y2 = bbox
-        face_crop = full_image[y1:y2, x1:x2]
-        
-        if face_crop.size == 0:
-            return "未知人员", None
-        
         try:
-            result = self.face_matcher.match(face_crop)
-            return result.name, result.similarity
+            # 直接使用批量匹配方法（单个 bbox）
+            results = self.face_matcher.match_all_faces_in_image(full_image, [bbox])
+            if results:
+                result = results[0]
+                print(f"👥 InsightFace 匹配结果: {result.name} ({result.similarity:.2f})")
+                return result.name, result.similarity
+            return "未知人员", None
         except Exception as e:
             print(f"⚠️  人脸识别失败: {e}")
             return "未知人员", None
@@ -309,7 +394,7 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         
         Args:
             image: 输入图像
-            recognize (bool): 是否进行人脸识别（使用CLIP匹配）
+            recognize (bool): 是否进行人脸识别（使用 InsightFace 匹配）
             persist (bool): 是否持久化跟踪ID（跨帧保持ID）
             
         Returns:
@@ -333,20 +418,18 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         
         tracked_faces = []
         
+        # 先收集所有检测框
         for result in results:
             boxes = result.boxes
             if boxes is not None and len(boxes) > 0:
                 for box in boxes:
-                    # 获取边界框坐标
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                     confidence = float(box.conf[0].cpu().numpy())
                     
-                    # 获取跟踪ID
                     track_id = None
                     if box.id is not None:
                         track_id = int(box.id[0].cpu().numpy())
                     
-                    # 确保坐标在图像范围内
                     x1_int = max(0, int(x1))
                     y1_int = max(0, int(y1))
                     x2_int = min(original_shape[1], int(x2))
@@ -359,31 +442,43 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
                         'name': "未知人员",
                         'similarity': None
                     }
-                    
-                    # 使用CLIP进行人脸匹配
-                    if recognize and self.face_matcher is not None:
-                        face_width = x2_int - x1_int
-                        face_height = y2_int - y1_int
-                        if face_width > 20 and face_height > 20:
-                            name, similarity = self.recognize_face_with_bbox(
-                                original_image, 
-                                [x1_int, y1_int, x2_int, y2_int]
-                            )
-                            face_info['name'] = name
-                            face_info['similarity'] = similarity
-                    
                     tracked_faces.append(face_info)
+        
+        # 批量进行人脸识别（每帧只调用一次 InsightFace）
+        if recognize and self.face_matcher is not None and len(tracked_faces) > 0:
+            # 过滤出有效的人脸框
+            valid_indices = []
+            valid_bboxes = []
+            for i, face in enumerate(tracked_faces):
+                x1, y1, x2, y2 = face['bbox']
+                if (x2 - x1) > 20 and (y2 - y1) > 20:
+                    valid_indices.append(i)
+                    valid_bboxes.append(face['bbox'])
+            
+            if valid_bboxes:
+                try:
+                    # 批量匹配所有人脸
+                    match_results = self.face_matcher.match_all_faces_in_image(
+                        original_image, valid_bboxes
+                    )
+                    # 将结果写回
+                    for idx, match_result in zip(valid_indices, match_results):
+                        tracked_faces[idx]['name'] = match_result.name
+                        tracked_faces[idx]['similarity'] = match_result.similarity
+                        print(f"👥 InsightFace 匹配结果: {match_result.name} ({match_result.similarity:.2f})")
+                except Exception as e:
+                    print(f"⚠️  批量人脸识别失败: {e}")
         
         return tracked_faces
     
     def detect_faces(self, image, visualize=True, recognize=True):
         """
-        检测图片中的人脸（支持CLIP人脸匹配识别）
+        检测图片中的人脸（支持 InsightFace 人脸匹配识别）
         
         Args:
             image: 输入图像
             visualize (bool): 是否可视化检测结果
-            recognize (bool): 是否进行人脸识别（使用CLIP匹配）
+            recognize (bool): 是否进行人脸识别（使用 InsightFace 匹配）
             
         Returns:
             tuple: (检测结果, 可视化图像)
@@ -403,16 +498,14 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
         # 确保使用原始分辨率的图像进行可视化
         vis_image = original_image.copy()
         
-        # 解析检测结果
+        # 先收集所有检测框
         for result in results:
             boxes = result.boxes
             if boxes is not None:
                 for box in boxes:
-                    # 获取边界框坐标
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                     confidence = box.conf[0].cpu().numpy()
                     
-                    # 确保坐标在图像范围内
                     x1_int = max(0, int(x1))
                     y1_int = max(0, int(y1))
                     x2_int = min(original_shape[1], int(x2))
@@ -424,62 +517,61 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
                         'name': "未知人员",
                         'similarity': None
                     }
-                    
-                    # 使用CLIP进行人脸匹配识别
-                    if recognize and self.face_matcher is not None:
-                        face_width = x2_int - x1_int
-                        face_height = y2_int - y1_int
-                        if face_width > 20 and face_height > 20:
-                            name, similarity = self.recognize_face_with_bbox(
-                                original_image, 
-                                [x1_int, y1_int, x2_int, y2_int]
-                            )
-                            face_info['name'] = name
-                            face_info['similarity'] = similarity
-                    
                     faces.append(face_info)
-                    
-                    if visualize:
-                        name = face_info['name']
-                        similarity = face_info['similarity']
-                        is_known = name != "未知人员"
-                        
-                        # 根据是否识别成功选择颜色
-                        box_color = (0, 255, 0) if is_known else (0, 255, 255)  # 绿色=已识别, 黄色=未识别
-                        
-                        # 绘制边界框
-                        cv2.rectangle(vis_image, (x1_int, y1_int), (x2_int, y2_int), box_color, 2)
-                        
-                        # 构建标签文本
-                        if is_known and similarity is not None:
-                            label = f'{name} ({similarity:.2f})'
-                        elif is_known:
-                            label = f'{name}'
-                        else:
-                            label = f'Face: {confidence:.3f}'
-                        
-                        # 绘制标签（支持中文）
-                        label_y = max(0, y1_int - 5)
-                        
-                        if is_known and PIL_AVAILABLE and self.chinese_font:
-                            # 使用中文字体绘制姓名
-                            vis_image = self.draw_chinese_text(
-                                vis_image, 
-                                name, 
-                                (x1_int, label_y - 25),
-                                font_color=(255, 255, 255),
-                                bg_color=(0, 128, 0)
-                            )
-                        else:
-                            # 使用OpenCV绘制
-                            font_scale = 0.4
-                            thickness = 1
-                            padding = 4
-                            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-                            cv2.rectangle(vis_image, (x1_int, y1_int - label_size[1] - padding), 
-                                        (x1_int + label_size[0], y1_int), box_color, -1)
-                            cv2.putText(vis_image, label, (x1_int, y1_int - padding // 2), 
-                                      cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+        
+        # 批量进行人脸识别（每帧只调用一次 InsightFace）
+        if recognize and self.face_matcher is not None and len(faces) > 0:
+            valid_indices = []
+            valid_bboxes = []
+            for i, face in enumerate(faces):
+                x1, y1, x2, y2 = face['bbox']
+                if (x2 - x1) > 20 and (y2 - y1) > 20:
+                    valid_indices.append(i)
+                    valid_bboxes.append(face['bbox'])
+            
+            if valid_bboxes:
+                try:
+                    match_results = self.face_matcher.match_all_faces_in_image(
+                        original_image, valid_bboxes
+                    )
+                    for idx, match_result in zip(valid_indices, match_results):
+                        faces[idx]['name'] = match_result.name
+                        faces[idx]['similarity'] = match_result.similarity
+                except Exception as e:
+                    print(f"⚠️  批量人脸识别失败: {e}")
+        
+        # 可视化
+        if visualize:
+            for face_info in faces:
+                x1_int, y1_int, x2_int, y2_int = face_info['bbox']
+                confidence = face_info['confidence']
+                name = face_info['name']
+                similarity = face_info['similarity']
+                is_known = name != "未知人员"
+                
+                # 根据是否识别成功选择颜色
+                box_color = (0, 255, 0) if is_known else (0, 255, 255)  # 绿色=已识别, 黄色=未识别
+                
+                # 绘制边界框
+                cv2.rectangle(vis_image, (x1_int, y1_int), (x2_int, y2_int), box_color, 2)
+                
+                # 构建标签文本
+                if is_known and similarity is not None:
+                    label = f'{name} ({similarity:.2f})'
+                elif is_known:
+                    label = f'{name}'
+                else:
+                    label = f'Face: {confidence:.3f}'
+                
+                # 绘制标签（支持中文）
+                label_y = max(0, y1_int - 28)
+                vis_image = self.draw_chinese_text(
+                    vis_image, 
+                    label, 
+                    (x1_int, label_y),
+                    font_color=(0, 0, 0),
+                    bg_color=box_color
+                )
         
         return faces, vis_image
 
@@ -500,12 +592,13 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
         end_time: 结束时间
         save_faces (bool): 是否保存裁剪的人脸到data目录
         save_interval_sec (float): 保存人脸的时间间隔（秒），用于降频保存
-        enable_recognition (bool): 是否启用人脸识别（使用CLIP匹配）
+        enable_recognition (bool): 是否启用人脸识别（使用 InsightFace 匹配）
         enable_tracking (bool): 是否启用跟踪 (ByteTrack/BotSORT)
     """
     print(f"🎥 开始处理视频: {video_path}")
     if enable_recognition and hasattr(detector, 'face_matcher') and detector.face_matcher:
-        print(f"👥 CLIP人脸匹配: 已启用，数据库中有 {detector.face_matcher.num_people} 人")
+        recognizer_name = type(detector.face_matcher).__name__
+        print(f"👥 人脸匹配: 已启用 ({recognizer_name})，数据库中有 {detector.face_matcher.num_people} 人")
     
     # 检查跟踪功能
     tracking_enabled = enable_tracking and hasattr(detector, 'enable_tracking') and detector.enable_tracking
@@ -659,7 +752,6 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 confidence = face['confidence']
                 name = face.get('name', '未知人员')
                 track_id = face.get('track_id', None)
-                print(f"name: {name}, confidence: {confidence}, track_id: {track_id}")
                 is_known = name != "未知人员"
                 
                 # 根据是否识别成功选择颜色
@@ -687,16 +779,14 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                     else:
                         label = f'Face ({confidence:.2f})'
                 
-                # 绘制标签
-                label_y = max(0, y1 - 5)
-                font_scale = 0.5
-                thickness = 1
-                padding = 4
-                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-                cv2.rectangle(vis_frame, (x1, y1 - label_size[1] - padding * 2), 
-                            (x1 + label_size[0] + padding, y1), box_color, -1)
-                cv2.putText(vis_frame, label, (x1 + padding // 2, y1 - padding), 
-                          cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+                # 绘制标签（支持中文）
+                label_y = max(0, y1 - 28)
+                vis_frame = draw_text_pil(
+                    vis_frame, label, (x1, label_y),
+                    font_color=(0, 0, 0), 
+                    bg_color=box_color,
+                    font_size=18
+                )
 
             # 确保vis_frame的分辨率与原始frame一致
             if vis_frame.shape[:2] != frame.shape[:2]:
@@ -708,14 +798,13 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                     confidence = face['confidence']
                     cv2.rectangle(vis_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
                     label = f'Face: {confidence:.3f}'
-                    font_scale = 0.4  # 字体缩放因子（0.4比原来的0.6更小）
-                    thickness = 1     # 线条粗细（1比原来的2更细）
-                    padding = 4      # padding（4比原来的10更小）
-                    label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
-                    cv2.rectangle(vis_frame, (int(x1), int(y1) - label_size[1] - padding), 
-                                (int(x1) + label_size[0], int(y1)), (0, 255, 255), -1)
-                    cv2.putText(vis_frame, label, (int(x1), int(y1) - padding // 2), 
-                              cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+                    label_y = max(0, int(y1) - 28)
+                    vis_frame = draw_text_pil(
+                        vis_frame, label, (int(x1), label_y),
+                        font_color=(0, 0, 0),
+                        bg_color=(0, 255, 255),
+                        font_size=16
+                    )
             
             # 保存裁剪的人脸
             if save_faces:
@@ -781,9 +870,13 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 stats_text.append(f'Names: {names_str}')
             
             for i, text in enumerate(stats_text):
-                y_pos = 30 + i * 25
-                cv2.putText(vis_frame, text, (10, y_pos), 
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                y_pos = 10 + i * 28
+                vis_frame = draw_text_pil(
+                    vis_frame, text, (10, y_pos),
+                    font_color=(255, 255, 0),
+                    bg_color=(0, 0, 0),
+                    font_size=18
+                )
             
             # 保存帧
             if writer:
@@ -833,7 +926,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description='YOLOv8专业人脸检测器（使用CLIP进行人脸匹配识别）')
+    parser = argparse.ArgumentParser(description='YOLOv8专业人脸检测器（使用 InsightFace 进行人脸匹配识别）')
     parser.add_argument('--input', type=str, required=True,
                        help='输入视频或图片文件路径')
     parser.add_argument('--output', type=str, 
@@ -864,13 +957,13 @@ def main():
     parser.add_argument('--save-interval-sec', type=float, default=5.0,
                        help='保存人脸的时间间隔（秒），默认5秒')
     
-    # CLIP 人脸匹配参数
+    # InsightFace 人脸匹配参数
     parser.add_argument('--photo-folder', type=str, default=None,
-                       help='人脸照片库文件夹路径（用于CLIP匹配识别，文件名作为人名）')
+                       help='人脸照片库文件夹路径（用于人脸识别匹配）')
     parser.add_argument('--similarity-threshold', type=float, default=DEFAULT_SIMILARITY_THRESHOLD,
-                       help=f'CLIP相似度阈值，低于此值为未知人员，默认{DEFAULT_SIMILARITY_THRESHOLD}')
-    parser.add_argument('--clip-model', type=str, default='ViT-B/32',
-                       help='CLIP模型名称: ViT-B/32(快速) 或 ViT-B/16(更精确) 或 ViT-L/14(最精确)')
+                       help=f'相似度阈值，低于此值为未知人员，默认{DEFAULT_SIMILARITY_THRESHOLD}')
+    parser.add_argument('--insightface-model', type=str, default='buffalo_l',
+                       help='InsightFace模型名称: buffalo_l(推荐) 或 buffalo_s(更快) 或 buffalo_sc(最快)')
     parser.add_argument('--no-recognition', action='store_true',
                        help='禁用人脸识别功能')
     
@@ -898,7 +991,7 @@ def main():
             model_path=args.model_path,
             photo_folder=args.photo_folder,
             similarity_threshold=args.similarity_threshold,
-            clip_model_name=args.clip_model,
+            insightface_model_name=args.insightface_model,
             enable_tracking=args.track,
             tracker_type=args.tracker,
             track_buffer=args.track_buffer
