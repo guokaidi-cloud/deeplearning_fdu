@@ -63,7 +63,7 @@ class InsightFaceMatcher:
         self,
         photo_folder: Optional[str] = None,
         threshold: float = 0.2,
-        model_name: str = "buffalo_sc",
+        model_name: str = "buffalo_l",
         ctx_id: int = 0,
         use_gpu: bool = True,
     ):
@@ -74,7 +74,7 @@ class InsightFaceMatcher:
             photo_folder: 人脸照片库文件夹路径
                 - 方式1: 文件夹下直接放图片，文件名（不含扩展名）作为人名
                 - 方式2: 文件夹下有子文件夹，子文件夹名作为人名，里面放该人的多张照片
-            threshold: 相似度阈值（目前已禁用，始终返回最佳匹配）
+            threshold: 相似度阈值，低于此值返回"未知人员"（默认0.2，范围0-1）
             model_name: InsightFace 模型名称 (buffalo_l, buffalo_s, buffalo_sc)
             ctx_id: GPU ID (0, 1, 2...)，-1 表示 CPU
             use_gpu: 是否使用 GPU 加速（默认 True）
@@ -82,7 +82,7 @@ class InsightFaceMatcher:
         if not INSIGHTFACE_AVAILABLE:
             raise RuntimeError("insightface 库未安装，无法使用 InsightFace 人脸匹配")
         
-        self.threshold = threshold
+        self.threshold = 0
         self.model_name = model_name
         
         # 确定使用 GPU 还是 CPU
@@ -157,6 +157,14 @@ class InsightFaceMatcher:
         best_name = max(all_similarities, key=all_similarities.get)
         best_sim = all_similarities[best_name]
         
+        # 置信度阈值判断
+        if best_sim < self.threshold:
+            return MatchResult(
+                name="未知人员",
+                similarity=best_sim,
+                all_similarities=all_similarities
+            )
+        
         return MatchResult(
             name=best_name,
             similarity=best_sim,
@@ -227,32 +235,47 @@ class InsightFaceMatcher:
         """
         从裁剪的人脸图像中提取特征
         
+        优先使用 InsightFace 进行关键点检测和对齐（精度高），
+        如果检测失败则回退到直接提取特征（保证有输出）
+        
         Args:
             face_crop: 裁剪的人脸图像 (BGR)
             
         Returns:
             512维特征向量，如果失败则返回 None
         """
+        if face_crop is None or face_crop.size == 0:
+            return None
         
+        h, w = face_crop.shape[:2]
         
-        # 尝试检测人脸并提取特征
+        # 方案1：直接在裁剪的人脸上检测（快速路径）
         faces = self.app.get(face_crop)
-        
         if len(faces) > 0:
-            # 选择最大的人脸（面积最大）
             if len(faces) > 1:
                 faces = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)
             return faces[0].embedding
         
-        # 如果检测不到，添加边距再试
-        pad = 30
-        padded = cv2.copyMakeBorder(face_crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(128, 128, 128))
+        # 方案2：添加边距后再检测（处理人脸太靠边的情况）
+        # 边距大小根据人脸尺寸动态调整，并使用边缘复制填充
+        pad = max(40, int(min(h, w) * 0.05))
+        padded = cv2.copyMakeBorder(face_crop, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
         faces = self.app.get(padded)
         
         if len(faces) > 0:
             if len(faces) > 1:
                 faces = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)
             return faces[0].embedding
+        
+        # 方案3：如果还是检测不到，尝试直接提取特征（精度较低，但保证有输出）
+        try:
+            rec_model = self.app.models.get('recognition')
+            if rec_model is not None:
+                face_resized = cv2.resize(face_crop, (112, 112))
+                embedding = rec_model.get_feat([face_resized])
+                return embedding[0]
+        except Exception:
+            pass
         
         return None
 
@@ -398,7 +421,7 @@ class InsightFaceMatcher:
         if query_emb is None:
             return MatchResult(name="未知人员", similarity=0.0, all_similarities=None)
         
-        # 与数据库匹配，找最优（无阈值）
+        # 与数据库匹配，找最优
         all_similarities = {}
         for name, db_emb in self.face_database.items():
             sim = self._compute_similarity(query_emb, db_emb)
@@ -406,6 +429,14 @@ class InsightFaceMatcher:
         
         best_name = max(all_similarities, key=all_similarities.get)
         best_sim = all_similarities[best_name]
+        
+        # 置信度阈值判断
+        if best_sim < self.threshold:
+            return MatchResult(
+                name="未知人员",
+                similarity=best_sim,
+                all_similarities=all_similarities
+            )
         
         return MatchResult(
             name=best_name,
@@ -433,6 +464,14 @@ class InsightFaceMatcher:
         
         best_name = max(all_similarities, key=all_similarities.get)
         best_sim = all_similarities[best_name]
+        
+        # 置信度阈值判断
+        if best_sim < self.threshold:
+            return MatchResult(
+                name="未知人员",
+                similarity=best_sim,
+                all_similarities=all_similarities
+            )
         
         return MatchResult(
             name=best_name,

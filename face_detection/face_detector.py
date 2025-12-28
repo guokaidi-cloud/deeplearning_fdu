@@ -14,8 +14,7 @@ import argparse
 import time
 
 
-class YOLOv8FaceDetector:
-    """YOLOv8 人脸检测器类"""
+class YOLOFaceDetector:
     
     def __init__(self, model_path='models/yolov8n-face.pt', conf_threshold=0.5, device='auto'):
         """

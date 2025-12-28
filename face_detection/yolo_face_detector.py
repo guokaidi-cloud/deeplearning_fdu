@@ -24,7 +24,7 @@ except ImportError:
 
 sys.path.append(str(Path(__file__).parent))
 
-from face_detector import YOLOv8FaceDetector
+from face_detector import YOLOFaceDetector
 
 # 导入 InsightFace 匹配器
 try:
@@ -46,7 +46,7 @@ CHINESE_FONT_PATHS = [
     "/System/Library/Fonts/PingFang.ttc",
 ]
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.65
+DEFAULT_SIMILARITY_THRESHOLD = 0.15
 
 # 加载中文字体（用于独立函数）
 def _load_chinese_font(size=20):
@@ -190,7 +190,7 @@ def check_and_download_model(model_path, model_name='yolov8n-face'):
         return False
 
 
-class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
+class YOLOSpecializedFaceDetector(YOLOFaceDetector):
     """
     专门的YOLOv8人脸检测器
     使用优化的人脸检测模型，支持基于 InsightFace 的人脸匹配识别和 ByteTrack 跟踪
@@ -200,7 +200,7 @@ class YOLOv8SpecializedFaceDetector(YOLOv8FaceDetector):
                  models_dir='models', model_path=None,
                  # 人脸识别参数
                  photo_folder=None, similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD, 
-                 insightface_model_name='buffalo_l',
+                 insightface_model_name='buffalo_sc',
                  # 跟踪参数
                  enable_tracking=False, tracker_type='bytetrack', track_buffer=30):
         """
@@ -962,7 +962,7 @@ def main():
                        help='人脸照片库文件夹路径（用于人脸识别匹配）')
     parser.add_argument('--similarity-threshold', type=float, default=DEFAULT_SIMILARITY_THRESHOLD,
                        help=f'相似度阈值，低于此值为未知人员，默认{DEFAULT_SIMILARITY_THRESHOLD}')
-    parser.add_argument('--insightface-model', type=str, default='buffalo_l',
+    parser.add_argument('--insightface-model', type=str, default='buffalo_sc',
                        help='InsightFace模型名称: buffalo_l(推荐) 或 buffalo_s(更快) 或 buffalo_sc(最快)')
     parser.add_argument('--no-recognition', action='store_true',
                        help='禁用人脸识别功能')
@@ -976,14 +976,14 @@ def main():
                        choices=['bytetrack', 'botsort'],
                        help='跟踪器类型: bytetrack(快速) 或 botsort(更精确)')
     parser.add_argument('--track-buffer', type=int, default=30,
-                       help='跟踪缓冲帧数（轨迹最大丢失帧数），默认30')
+                       help='跟踪缓冲帧数(轨迹最大丢失帧数），默认30')
     
     args = parser.parse_args()
     
     try:
         # 初始化专业人脸检测器
         print(f"🚀 初始化YOLOv8人脸检测器...")
-        detector = YOLOv8SpecializedFaceDetector(
+        detector = YOLOSpecializedFaceDetector(
             model_name=args.model,
             conf_threshold=args.conf,
             device=args.device,
