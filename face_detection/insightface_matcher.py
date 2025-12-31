@@ -171,21 +171,21 @@ class InsightFaceMatcher:
             all_similarities=all_similarities
         )
 
-    def match_all_faces_in_image(self, full_image: np.ndarray, yolo_bboxes: list, num_threads: int = 20) -> list:
+    def match_all_faces_in_image(self, full_image: np.ndarray, yolo_bboxes: list, num_threads: int = 4) -> list:
         """
-        批量匹配多个 YOLO 检测的人脸（多线程版本）
+        批量匹配多个 YOLO 检测的人脸（优化版本：保留人脸对齐 + 快速匹配）
         
         直接使用 YOLO 的 bbox 裁剪人脸，提取特征后与数据库匹配
         
         Args:
             full_image: 完整的 BGR 图像
             yolo_bboxes: YOLO 检测到的边界框列表 [[x1, y1, x2, y2], ...]
-            num_threads: 线程数量（默认 20）
+            num_threads: 并行线程数（默认 4）
             
         Returns:
             list: [MatchResult, ...] 与 yolo_bboxes 一一对应
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor
         
         if len(self.face_database) == 0:
             return [MatchResult(name="未知人员", similarity=0.0, all_similarities=None) 
@@ -196,40 +196,84 @@ class InsightFaceMatcher:
         
         h, w = full_image.shape[:2]
         
-        # 预先裁剪所有人脸（主线程，避免图像访问冲突）
+        # 预计算数据库特征矩阵（只需计算一次）
+        if not hasattr(self, '_db_matrix') or self._db_matrix is None:
+            self._build_db_matrix()
+        
+        # 预先裁剪所有人脸
         face_crops = []
-        for yolo_bbox in yolo_bboxes:
+        valid_indices = []
+        
+        for idx, yolo_bbox in enumerate(yolo_bboxes):
             x1, y1, x2, y2 = yolo_bbox
-            # 确保坐标在有效范围内
             x1, y1 = max(0, int(x1)), max(0, int(y1))
             x2, y2 = min(w, int(x2)), min(h, int(y2))
             
-            if x2 > x1 and y2 > y1:
+            if x2 > x1 + 20 and y2 > y1 + 20:  # 最小尺寸检查
                 face_crop = full_image[y1:y2, x1:x2].copy()
-            else:
-                face_crop = None
-            face_crops.append(face_crop)
+                face_crops.append(face_crop)
+                valid_indices.append(idx)
         
-        # 多线程并行匹配
-        results = [None] * len(face_crops)
+        # 初始化结果
+        results = [MatchResult(name="未知人员", similarity=0.0, all_similarities=None) 
+                   for _ in yolo_bboxes]
         
+        if not face_crops:
+            return results
+        
+        # 使用线程池并行提取特征（保留人脸对齐）
+        def _extract_and_match(face_crop):
+            emb = self._extract_embedding_from_crop(face_crop)
+            if emb is not None:
+                return self._match_embedding_fast(emb)
+            return MatchResult(name="未知人员", similarity=0.0, all_similarities=None)
+        
+        # 并行处理
         with ThreadPoolExecutor(max_workers=min(num_threads, len(face_crops))) as executor:
-            # 提交任务
-            future_to_idx = {
-                executor.submit(self._match_single_face, face_crop): idx
-                for idx, face_crop in enumerate(face_crops)
-            }
-            
-            # 收集结果
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                try:
-                    results[idx] = future.result()
-                except Exception as e:
-                    print(f"⚠️  线程 {idx} 匹配失败: {e}")
-                    results[idx] = MatchResult(name="未知人员", similarity=0.0, all_similarities=None)
+            match_results = list(executor.map(_extract_and_match, face_crops))
+        
+        # 写回结果
+        for idx, result in zip(valid_indices, match_results):
+            results[idx] = result
         
         return results
+    
+    def _build_db_matrix(self):
+        """构建数据库特征矩阵，用于快速批量匹配"""
+        if len(self.face_database) == 0:
+            self._db_matrix = None
+            self._db_names = []
+            return
+        
+        self._db_names = list(self.face_database.keys())
+        embeddings = [self.face_database[name] for name in self._db_names]
+        self._db_matrix = np.array(embeddings)
+        # 归一化
+        norms = np.linalg.norm(self._db_matrix, axis=1, keepdims=True)
+        self._db_matrix = self._db_matrix / norms
+    
+    def _match_embedding_fast(self, embedding: np.ndarray) -> MatchResult:
+        """
+        快速匹配单个特征向量（使用预计算的矩阵，向量化计算）
+        """
+        if self._db_matrix is None or len(self._db_names) == 0:
+            return MatchResult(name="未知人员", similarity=0.0, all_similarities=None)
+        
+        # 归一化查询向量
+        emb_norm = embedding / np.linalg.norm(embedding)
+        
+        # 批量计算余弦相似度（向量化，比循环快）
+        similarities = np.dot(self._db_matrix, emb_norm)
+        similarities = (similarities + 1) / 2  # 映射到 0-1
+        
+        best_idx = np.argmax(similarities)
+        best_name = self._db_names[best_idx]
+        best_sim = float(similarities[best_idx])
+        
+        if best_sim < self.threshold:
+            return MatchResult(name="未知人员", similarity=best_sim, all_similarities=None)
+        
+        return MatchResult(name=best_name, similarity=best_sim, all_similarities=None)
     
     def _extract_embedding_from_crop(self, face_crop: np.ndarray) -> Optional[np.ndarray]:
         """
@@ -250,14 +294,14 @@ class InsightFaceMatcher:
         h, w = face_crop.shape[:2]
         
         # 方案1：直接在裁剪的人脸上检测（快速路径）
-        faces = self.app.get(face_crop)
-        if len(faces) > 0:
-            if len(faces) > 1:
-                faces = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)
-            return faces[0].embedding
+        # faces = self.app.get(face_crop)
+        # if len(faces) > 0:
+        #     if len(faces) > 1:
+        #         faces = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)
+        #     return faces[0].embedding
         
-        # 方案2：添加边距后再检测（处理人脸太靠边的情况）
-        # 边距大小根据人脸尺寸动态调整，并使用边缘复制填充
+        # # 方案2：添加边距后再检测（处理人脸太靠边的情况）
+        # # 边距大小根据人脸尺寸动态调整，并使用边缘复制填充
         pad = max(40, int(min(h, w) * 0.05))
         padded = cv2.copyMakeBorder(face_crop, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
         faces = self.app.get(padded)

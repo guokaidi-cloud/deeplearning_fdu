@@ -61,9 +61,18 @@ def _load_chinese_font(size=20):
                 continue
     return None
 
+# 全局字体缓存
+_FONT_CACHE = {}
+
+def _get_cached_font(font_size=20):
+    """获取缓存的字体"""
+    if font_size not in _FONT_CACHE:
+        _FONT_CACHE[font_size] = _load_chinese_font(font_size)
+    return _FONT_CACHE[font_size]
+
 def draw_text_pil(image, text, position, font_color=(255, 255, 255), bg_color=(0, 128, 0), font_size=20):
     """
-    使用 PIL 在图像上绘制中文文本
+    使用 PIL 在图像上绘制中文文本（优化版：使用缓存字体）
     
     Args:
         image: OpenCV图像 (BGR)
@@ -77,11 +86,10 @@ def draw_text_pil(image, text, position, font_color=(255, 255, 255), bg_color=(0
         处理后的图像
     """
     if not PIL_AVAILABLE:
-        # 回退到 OpenCV
         cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, font_color[::-1], 1)
         return image
     
-    font = _load_chinese_font(font_size)
+    font = _get_cached_font(font_size)
     if font is None:
         cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, font_color[::-1], 1)
         return image
@@ -108,6 +116,53 @@ def draw_text_pil(image, text, position, font_color=(255, 255, 255), bg_color=(0
     draw.text((x + padding, y + padding), text, font=font, fill=font_color)
     
     # 转回 OpenCV 格式
+    return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+
+def draw_texts_pil_batch(image, texts_info, font_size=18):
+    """
+    批量绘制多个文本（只转换一次图像，大幅提升性能）
+    
+    Args:
+        image: OpenCV图像 (BGR)
+        texts_info: [(text, position, font_color, bg_color), ...]
+        font_size: 字体大小
+    
+    Returns:
+        处理后的图像
+    """
+    if not texts_info:
+        return image
+    
+    if not PIL_AVAILABLE:
+        for text, position, font_color, bg_color in texts_info:
+            cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, font_color[::-1], 1)
+        return image
+    
+    font = _get_cached_font(font_size)
+    if font is None:
+        for text, position, font_color, bg_color in texts_info:
+            cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, font_color[::-1], 1)
+        return image
+    
+    # 只转换一次
+    pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_image)
+    
+    padding = 3
+    for text, position, font_color, bg_color in texts_info:
+        x, y = position
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        draw.rectangle(
+            [(x, y), (x + text_width + padding * 2, y + text_height + padding * 2)],
+            fill=bg_color
+        )
+        draw.text((x + padding, y + padding), text, font=font, fill=font_color)
+    
+    # 只转换一次
     return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
 
@@ -338,11 +393,9 @@ class YOLOSpecializedFaceDetector(YOLOFaceDetector):
             results = self.face_matcher.match_all_faces_in_image(full_image, [bbox])
             if results:
                 result = results[0]
-                print(f"👥 InsightFace 匹配结果: {result.name} ({result.similarity:.2f})")
                 return result.name, result.similarity
             return "未知人员", None
-        except Exception as e:
-            print(f"⚠️  人脸识别失败: {e}")
+        except Exception:
             return "未知人员", None
     
     def draw_chinese_text(self, image, text, position, font_color=(255, 255, 255), bg_color=(0, 0, 0)):
@@ -461,13 +514,12 @@ class YOLOSpecializedFaceDetector(YOLOFaceDetector):
                     match_results = self.face_matcher.match_all_faces_in_image(
                         original_image, valid_bboxes
                     )
-                    # 将结果写回
+                    # 将结果写回（移除 print 提升性能）
                     for idx, match_result in zip(valid_indices, match_results):
                         tracked_faces[idx]['name'] = match_result.name
                         tracked_faces[idx]['similarity'] = match_result.similarity
-                        print(f"👥 InsightFace 匹配结果: {match_result.name} ({match_result.similarity:.2f})")
-                except Exception as e:
-                    print(f"⚠️  批量人脸识别失败: {e}")
+                except Exception:
+                    pass  # 静默处理，避免日志刷屏影响性能
         
         return tracked_faces
     
@@ -578,7 +630,8 @@ class YOLOSpecializedFaceDetector(YOLOFaceDetector):
 
 def process_video_with_yolov8(detector, video_path, output_path=None, show_video=False, 
                               max_frames=None, start_time=None, end_time=None, save_faces=True,
-                              save_interval_sec=5.0, enable_recognition=True, enable_tracking=True):
+                              save_interval_sec=5.0, enable_recognition=True, enable_tracking=True,
+                              recognition_interval=3):
     """
     使用YOLOv8处理视频文件进行人脸检测、识别和跟踪
     
@@ -594,6 +647,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
         save_interval_sec (float): 保存人脸的时间间隔（秒），用于降频保存
         enable_recognition (bool): 是否启用人脸识别（使用 InsightFace 匹配）
         enable_tracking (bool): 是否启用跟踪 (ByteTrack/BotSORT)
+        recognition_interval (int): 人脸识别间隔帧数，默认每3帧识别一次（提升性能）
     """
     print(f"🎥 开始处理视频: {video_path}")
     if enable_recognition and hasattr(detector, 'face_matcher') and detector.face_matcher:
@@ -714,6 +768,22 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
     last_save_time = -1e9  # 控制保存频率的时间戳
     track_save_counts = defaultdict(int)  # 用于按track_id保存计数
     
+    # 缓存上一帧的识别结果（用于跳帧优化）
+    # 支持两种缓存策略：基于 track_id 或基于位置
+    cached_by_track_id = {}  # {track_id: (name, similarity)}
+    cached_by_position = []  # [(cx, cy, name, similarity), ...] 基于位置的缓存
+    
+    def _find_cached_by_position(cx, cy, threshold=50):
+        """根据中心点位置查找缓存的识别结果"""
+        best_match = None
+        best_dist = threshold
+        for pcx, pcy, name, sim in cached_by_position:
+            dist = abs(cx - pcx) + abs(cy - pcy)  # 曼哈顿距离
+            if dist < best_dist:
+                best_dist = dist
+                best_match = (name, sim)
+        return best_match
+    
     try:
         while True:
             ret, frame = cap.read()
@@ -732,21 +802,58 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 print(f"⏹️  已达到最大处理帧数: {max_frames}")
                 break
             
+            # 判断是否需要进行识别（跳帧优化）
+            do_recognition = enable_recognition and (processed_frames % recognition_interval == 0)
+            
             # 检测人脸（根据是否启用跟踪选择不同方法）
             if tracking_enabled:
                 # 使用YOLO内置的ByteTrack/BotSORT跟踪
-                faces = detector.detect_and_track(frame, recognize=enable_recognition, persist=True)
+                faces = detector.detect_and_track(frame, recognize=do_recognition, persist=True)
             else:
                 # 仅检测，不跟踪
-                faces, _ = detector.detect_faces(frame, visualize=False, recognize=enable_recognition)
+                faces, _ = detector.detect_faces(frame, visualize=False, recognize=do_recognition)
+            
+            # 如果跳帧，使用缓存的识别结果
+            if not do_recognition and enable_recognition:
+                for face in faces:
+                    track_id = face.get('track_id')
+                    # 优先使用 track_id 缓存
+                    if track_id is not None and track_id in cached_by_track_id:
+                        face['name'], face['similarity'] = cached_by_track_id[track_id]
+                    else:
+                        # 回退到基于位置的缓存
+                        x1, y1, x2, y2 = face['bbox']
+                        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                        cached = _find_cached_by_position(cx, cy)
+                        if cached:
+                            face['name'], face['similarity'] = cached
+            else:
+                # 更新缓存
+                cached_by_track_id.clear()
+                cached_by_position.clear()
+                for face in faces:
+                    name = face.get('name', '未知人员')
+                    sim = face.get('similarity')
+                    track_id = face.get('track_id')
+                    
+                    # 保存到 track_id 缓存
+                    if track_id is not None:
+                        cached_by_track_id[track_id] = (name, sim)
+                    
+                    # 同时保存到位置缓存（用于无跟踪模式）
+                    x1, y1, x2, y2 = face['bbox']
+                    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                    cached_by_position.append((cx, cy, name, sim))
             
             total_faces += len(faces)
             
             # 统计识别结果
             recognized_names = [f['name'] for f in faces if f.get('name') and f['name'] != "未知人员"]
             
-            # 自定义可视化（支持跟踪ID显示）
+            # 自定义可视化（支持跟踪ID显示）- 使用批量绘制优化
             vis_frame = frame.copy()
+            texts_info = []  # 收集所有需要绘制的文本
+            
             for face in faces:
                 x1, y1, x2, y2 = face['bbox']
                 confidence = face['confidence']
@@ -764,7 +871,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 else:
                     box_color = (0, 255, 0) if is_known else (0, 255, 255)  # 绿色=已识别, 黄色=未识别
                 
-                # 绘制边界框
+                # 绘制边界框（使用 OpenCV，快速）
                 cv2.rectangle(vis_frame, (x1, y1), (x2, y2), box_color, 2)
                 
                 # 构建标签文本，优先显示姓名
@@ -779,14 +886,13 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                     else:
                         label = f'Face ({confidence:.2f})'
                 
-                # 绘制标签（支持中文）
+                # 收集文本信息用于批量绘制
                 label_y = max(0, y1 - 28)
-                vis_frame = draw_text_pil(
-                    vis_frame, label, (x1, label_y),
-                    font_color=(0, 0, 0), 
-                    bg_color=box_color,
-                    font_size=18
-                )
+                texts_info.append((label, (x1, label_y), (0, 0, 0), box_color))
+            
+            # 批量绘制所有文本标签（只转换一次图像）
+            if texts_info:
+                vis_frame = draw_texts_pil_batch(vis_frame, texts_info, font_size=18)
 
             # 确保vis_frame的分辨率与原始frame一致
             if vis_frame.shape[:2] != frame.shape[:2]:
@@ -846,7 +952,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                                 face_path = data_dir / face_filename
                             cv2.imwrite(str(face_path), face_crop)
             
-            # 添加统计信息
+            # 添加统计信息（使用批量绘制）
             elapsed_time = time.time() - process_start_time
             current_fps = processed_frames / elapsed_time if elapsed_time > 0 else 0
             
@@ -869,14 +975,13 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                     names_str += f'... (+{len(recognized_names)-3})'
                 stats_text.append(f'Names: {names_str}')
             
+            # 收集统计文本用于批量绘制
+            stats_texts_info = []
             for i, text in enumerate(stats_text):
                 y_pos = 10 + i * 28
-                vis_frame = draw_text_pil(
-                    vis_frame, text, (10, y_pos),
-                    font_color=(255, 255, 0),
-                    bg_color=(0, 0, 0),
-                    font_size=18
-                )
+                stats_texts_info.append((text, (10, y_pos), (255, 255, 0), (0, 0, 0)))
+            
+            vis_frame = draw_texts_pil_batch(vis_frame, stats_texts_info, font_size=18)
             
             # 保存帧
             if writer:
@@ -946,7 +1051,7 @@ def main():
                        help='自定义模型文件路径（优先使用该路径）')
     parser.add_argument('--conf', type=float, default=0.3, 
                        help='置信度阈值')
-    parser.add_argument('--device', type=str, default='auto', 
+    parser.add_argument('--device', type=str, default='cuda', 
                        help='运行设备 (auto/cuda/cpu)')
     parser.add_argument('--models-dir', type=str, default='models',
                        help='模型存放目录')
@@ -966,6 +1071,8 @@ def main():
                        help='InsightFace模型名称: buffalo_l(推荐) 或 buffalo_s(更快) 或 buffalo_sc(最快)')
     parser.add_argument('--no-recognition', action='store_true',
                        help='禁用人脸识别功能')
+    parser.add_argument('--recognition-interval', type=int, default=3,
+                       help='人脸识别间隔帧数，默认每3帧识别一次（提升性能）')
     
     # 跟踪相关参数
     parser.add_argument('--track', action='store_true', default=False,
@@ -1025,7 +1132,8 @@ def main():
                 save_faces=args.save_faces,
                 save_interval_sec=args.save_interval_sec,
                 enable_recognition=enable_recognition,
-                enable_tracking=enable_tracking
+                enable_tracking=enable_tracking,
+                recognition_interval=args.recognition_interval
             )
         
         # 处理图片文件

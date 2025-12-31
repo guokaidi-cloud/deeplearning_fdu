@@ -66,6 +66,14 @@ python face_detection/yolo_face_detector.py --input "教室学生机位/深度�
    --photo-folder  classmate_photo_processed/       
 
 
+# 12/31
+#yolov8n
+python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
+   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_after.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
+   --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/runs/yolov8n_face_finetune/weights/best.pt   \
+   --photo-folder  classmate_photo_processed/       
+
+
 # 前端展示
 # 目前需要安装uvicorn和ffmpeg
 # 生成的一些文件在 outputs/ uploads/ 目录下
