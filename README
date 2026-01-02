@@ -52,16 +52,9 @@ python face_detection/yolo_face_detector.py --input "教室学生机位/深度�
 # 生成的一些文件在 outputs/ uploads/ 目录下
 - 启动后端
 ```bash
-uvicorn api_server:app --host 0.0.0.0 --port 8000
+cd frontend && uvicorn api_server:app --host 0.0.0.0 --port 8000
 ```
 - 启动前端
 ```bash
 cd frontend && python -m http.server 8001
 ```
-
-# yolo+deepsort 人体识别 跟踪 并保存裁剪图片
-python human_detection/yolo_human_tracker.py \
-  --source "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4" --model yolov8x.pt --conf 0.3 \
-  --save-vid --output tracked_output.mp4   --start-time 6000 \
-  --save-crops --crops-dir data/human_crops --save-interval-sec 0.5 --no-track \
-  --tracker-n-init 2 --tracker-max-age 60 --tracker-max-cosine-distance 0.4

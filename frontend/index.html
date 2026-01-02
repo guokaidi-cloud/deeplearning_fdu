@@ -153,16 +153,19 @@
         <div style="margin-top:12px;">
           <label for="model">使用模型</label>
           <select id="model">
-            <option value="opencv">OpenCV Haar/LBP</option>
-            <option value="yolov8">YOLOv8-face</option>
-            <option value="yolov12">YOLOv12-face</option>
-            <option value="clip">CLIP one-shot</option>
+            <option value="yolov8n-face">YOLOv8n-face</option>
+            <option value="yolov12l-face">YOLOv12l-face</option>
           </select>
         </div>
 
         <div style="margin-top:12px;">
-          <label for="conf">置信度阈值：<span id="confValue">0.25</span></label>
-          <input id="conf" type="range" min="0" max="1" step="0.01" value="0.25">
+          <label for="conf">置信度阈值：<span id="confValue">0.30</span></label>
+          <input id="conf" type="range" min="0" max="1" step="0.01" value="0.30">
+        </div>
+
+        <div style="margin-top:12px;">
+          <label for="similarity">相似度阈值：<span id="similarityValue">0.61</span></label>
+          <input id="similarity" type="range" min="0" max="1" step="0.01" value="0.61">
         </div>
 
         <div class="row" style="margin-top:16px; justify-content:flex-end;">
@@ -195,6 +198,8 @@
     const modelSelect = document.getElementById("model");
     const confRange = document.getElementById("conf");
     const confValue = document.getElementById("confValue");
+    const similarityRange = document.getElementById("similarity");
+    const similarityValue = document.getElementById("similarityValue");
     const runBtn = document.getElementById("runBtn");
     const resetBtn = document.getElementById("resetBtn");
     const statusEl = document.getElementById("status");
@@ -206,6 +211,10 @@
 
     confRange.addEventListener("input", () => {
       confValue.textContent = Number(confRange.value).toFixed(2);
+    });
+
+    similarityRange.addEventListener("input", () => {
+      similarityValue.textContent = Number(similarityRange.value).toFixed(2);
     });
 
     videoInput.addEventListener("change", () => {
@@ -228,9 +237,11 @@
     resetBtn.addEventListener("click", () => {
       videoInput.value = "";
       startTimeInput.value = "0";
-      modelSelect.value = "opencv";
-      confRange.value = "0.25";
-      confValue.textContent = "0.25";
+      modelSelect.value = "yolov8n-face";
+      confRange.value = "0.30";
+      confValue.textContent = "0.30";
+      similarityRange.value = "0.61";
+      similarityValue.textContent = "0.61";
       maxFramesInput.value = "";
       statusEl.textContent = "";
       resultVideo.classList.add("hidden");
@@ -262,6 +273,7 @@
       formData.append("start_time", String(startSeconds));
       formData.append("model", modelSelect.value);
       formData.append("conf", confRange.value);
+      formData.append("similarity_threshold", similarityRange.value);
       if (maxFramesInput.value.trim() !== "") {
         formData.append("max_frames", maxFramesInput.value.trim());
       }
