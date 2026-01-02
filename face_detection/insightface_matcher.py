@@ -62,7 +62,7 @@ class InsightFaceMatcher:
     def __init__(
         self,
         photo_folder: Optional[str] = None,
-        threshold: float = 0.2,
+        threshold: float = 0.5,
         model_name: str = "buffalo_l",
         ctx_id: int = 0,
         use_gpu: bool = True,
@@ -82,7 +82,7 @@ class InsightFaceMatcher:
         if not INSIGHTFACE_AVAILABLE:
             raise RuntimeError("insightface 库未安装，无法使用 InsightFace 人脸匹配")
         
-        self.threshold = 0
+        self.threshold = threshold  # 使用传入的阈值参数
         self.model_name = model_name
         
         # 确定使用 GPU 还是 CPU

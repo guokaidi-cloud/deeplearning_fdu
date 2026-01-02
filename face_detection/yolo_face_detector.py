@@ -44,7 +44,7 @@ CHINESE_FONT_PATHS = [
     "/System/Library/Fonts/PingFang.ttc",
 ]
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.15
+DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
 # 加载中文字体（用于独立函数）
 def _load_chinese_font(size=20):
@@ -770,6 +770,9 @@ def process_video(detector, video_path, output_path=None, show_video=False,
     last_save_time = -1e9  # 控制保存频率的时间戳
     track_save_counts = defaultdict(int)  # 用于按track_id保存计数
     
+    # 考勤统计：记录识别到的人员
+    recognized_people = set()  # 存储识别到的人名
+    
     # 缓存上一帧的识别结果（用于跳帧优化）
     # 支持两种缓存策略：基于 track_id 或基于位置
     cached_by_track_id = {}  # {track_id: (name, similarity)}
@@ -851,6 +854,10 @@ def process_video(detector, video_path, output_path=None, show_video=False,
             
             # 统计识别结果
             recognized_names = [f['name'] for f in faces if f.get('name') and f['name'] != "未知人员"]
+            
+            # 更新考勤统计
+            for name in recognized_names:
+                recognized_people.add(name)
             
             # 自定义可视化（支持跟踪ID显示）- 使用批量绘制优化
             vis_frame = frame.copy()
@@ -975,12 +982,15 @@ def process_video(detector, video_path, output_path=None, show_video=False,
                 f'Processing FPS: {current_fps:.1f}'
             ]
             
-            # 如果有识别到的人，显示姓名
-            if recognized_names:
-                names_str = ', '.join(recognized_names[:3])  # 最多显示3个名字
-                if len(recognized_names) > 3:
-                    names_str += f'... (+{len(recognized_names)-3})'
-                stats_text.append(f'Names: {names_str}')
+            # 显示当前帧出勤统计（如果启用了识别功能）
+            if enable_recognition and hasattr(detector, 'face_matcher') and detector.face_matcher:
+                total_people = len(detector.face_matcher.face_database)
+                # 当前帧识别到的人数
+                current_present = len(set(recognized_names))  # 去重
+                current_absent = total_people - current_present
+                attendance_rate = (current_present / total_people * 100) if total_people > 0 else 0
+                stats_text.append(f'出勤: {current_present}/{total_people} ({attendance_rate:.1f}%)')
+                stats_text.append(f'未到: {current_absent}人')
             
             # 收集统计文本用于批量绘制
             stats_texts_info = []
@@ -1034,6 +1044,27 @@ def process_video(detector, video_path, output_path=None, show_video=False,
     print(f"   🎯 检测人脸: {total_faces}")
     print(f"   ⚡ 平均FPS: {avg_fps:.1f}")
     print(f"   📏 平均每帧人脸数: {total_faces/processed_frames:.1f}" if processed_frames > 0 else "")
+    
+    # 输出考勤统计
+    if enable_recognition and hasattr(detector, 'face_matcher') and detector.face_matcher:
+        all_people = set(detector.face_matcher.face_database.keys())
+        present_people = recognized_people
+        absent_people = all_people - present_people
+        
+        print(f"\n📋 考勤统计:")
+        print(f"   👥 数据库总人数: {len(all_people)}")
+        print(f"   ✅ 已到人数: {len(present_people)}")
+        print(f"   ❌ 未到人数: {len(absent_people)}")
+        
+        if present_people:
+            print(f"\n   ✅ 已到人员 ({len(present_people)}人):")
+            for name in sorted(present_people):
+                print(f"      - {name}")
+        
+        if absent_people:
+            print(f"\n   ❌ 未到人员 ({len(absent_people)}人):")
+            for name in sorted(absent_people):
+                print(f"      - {name}")
 
 
 def main():

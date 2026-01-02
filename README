@@ -26,25 +26,25 @@ python face_detection/yolo_face_detector.py --input "教室学生机位/深度�
 
 # yolov8n-face和yolov12l-face微调后的效果
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/face_detection/classroom_2025-11-29_100m_later_yolov8n_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
+   --output "test_data/face_detection/classroom_2025-11-29_100m_later_yolov8n_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 100  \
    --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov8n_face_finetune/weights/best.pt 
 
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/face_detection/classroom_2025-11-29_100m_later_yolov12l_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
+   --output "test_data/face_detection/classroom_2025-11-29_100m_later_yolov12l_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 100  \
    --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune6/weights/best.pt 
 
 
 
 # 各个模型版本测试
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/classroom_2025-11-29_100m_later_yolov8n_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
+   --output "test_data/classroom_2025-11-29_100m_later_yolov8n_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 500  \
    --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov8n_face_finetune/weights/best.pt  \
-   --photo-folder  classmate_photo_processed/
+   --photo-folder  classmate_photo_processed/  --similarity-threshold 0.61
 
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/classroom_2025-11-29_100m_later_save_faces_after_yolov12l_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
+   --output "test_data/classroom_2025-11-29_100m_later_save_faces_after_yolov12l_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 500  \
    --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune6/weights/best.pt   \
-   --photo-folder  classmate_photo_processed/       
+   --photo-folder  classmate_photo_processed/  --similarity-threshold 0.61
 
 
 # 前端展示
