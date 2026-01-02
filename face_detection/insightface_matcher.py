@@ -302,7 +302,7 @@ class InsightFaceMatcher:
         
         # # 方案2：添加边距后再检测（处理人脸太靠边的情况）
         # # 边距大小根据人脸尺寸动态调整，并使用边缘复制填充
-        pad = max(40, int(min(h, w) * 0.05))
+        pad = max(40, int(min(h, w) * 0.1))
         padded = cv2.copyMakeBorder(face_crop, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
         faces = self.app.get(padded)
         

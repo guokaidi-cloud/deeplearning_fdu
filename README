@@ -1,67 +1,15 @@
-# Opencv demo
-
-```bash
-python face_detection/opencv_face_detector.py \
- --input "教室学生机位/深度学习应用++2025-11-22第1-3节+[30657+-+524562]教室流.mp4" \
- --output "test_data/opencv_classroom_1hour_later.mp4" \
- --start-time "3600" --max-frames 1000 --min-neighbors 3 --min-size 15 15
-```
 
 
-# YOLOv8 demo
-
-```bash
-python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-22第1-3节+[30657+-+524562]教室流.mp4"\
-    --output "test_data/yolov8_classroom_1hour_later.mp4" \
-    --max-frames 500 --conf 0.15 --start-time 3600 
-```
-
-
-# YOLOv12 demo 
-```bash
-# --save-faces 目前只是测试使用，会保存大量图片下来
-python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4" \
-    --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces.mp4"  \
-    --max-frames 100 --conf 0.15 --start-time 6000  --model yolov12l-face --save-faces --student-photos ./classmate_photo_processed
-```
-
-# 人脸识别
-python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces.mp4" --conf 0.05 --start-time 9000 --end-time 11500 \
-   --model yolov12l-face --save-faces --student-photos ./classmate_photo_processed \
---track  --save-interval-sec 3
-
-python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_before.mp4" --conf 0.3 --start-time 9000 --max-frames 500 \
-   --student-photos ./classmate_photo_processed \
-   --save-faces --track  --save-interval-sec 3 \
-   --model yolov12l-face
-
-
-python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_after.mp4" --conf 0.3 --start-time 9000 --max-frames 500 \
-   --student-photos ./classmate_photo_processed \
-   --save-faces --track  --save-interval-sec 3 \
-   --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune3/weights/best.pt
-
-
-
+# 跟踪
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-15第1-3节+[30657+-+524561]教室流.mp4"  \
    --output "test_data/yolov12l_classroom_2025-11-15_100m_later_save_faces_after.mp4" --conf 0.3 --start-time 6000 --max-frames 5000 \
    --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune6/weights/best.pt \
-   --photo-folder ../classmate_photo_processed/ \
-    --recognizer insightface \
+  --save-faces --track  --save-interval-sec 3
 
 
-python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-15第1-3节+[30657+-+524561]教室流.mp4"  \
-   --output "test_data/yolov12l_classroom_2025-11-15_100m_later_save_faces_after.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
-     --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune6/weights/best.pt   \
-      --photo-folder  classmate_photo_processed/
 
-
-# 12/14
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_after.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
+   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_after_yolo12l.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
    --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune6/weights/best.pt   \
    --photo-folder  classmate_photo_processed/       
 
@@ -69,8 +17,8 @@ python face_detection/yolo_face_detector.py --input "教室学生机位/深度�
 # 12/31
 #yolov8n
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_after.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
-   --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/runs/yolov8n_face_finetune/weights/best.pt   \
+   --output "test_data/yolov12l_classroom_2025-11-29_100m_later_save_faces_after_yolov8.mp4" --conf 0.3 --start-time 6000 --max-frames 5000  \
+   --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov8n_face_finetune/weights/best.pt   \
    --photo-folder  classmate_photo_processed/       
 
 
