@@ -17,3 +17,11 @@ classmate_photo_processed/*
 
 label/*
 label*
+
+
+
+cuda_tensorrt/yolov8/ultralytics/*
+cuda_tensorrt/deploy-yolo/build/*
+cuda_tensorrt/deploy-yolo/bin/*
+cuda_tensorrt/deploy-yolo/data/*
+cuda_tensorrt/deploy-yolo/models/*

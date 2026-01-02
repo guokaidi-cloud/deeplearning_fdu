@@ -1,0 +1,131 @@
+#ifndef __PREPROCESS_HPP__
+#define __PREPROCESS_HPP__
+
+#include "opencv2/opencv.hpp"
+#include "trt_timer.hpp"
+
+namespace preprocess {
+
+enum class tactics : int32_t {
+  CPU_NEAREST = 0,
+  CPU_BILINEAR = 1,
+  GPU_NEAREST = 2,
+  GPU_NEAREST_CENTER = 3,
+  GPU_BILINEAR = 4,
+  GPU_BILINEAR_CENTER = 5,
+  GPU_WARP_AFFINE = 6,
+  GPU_LETTERBOX = 7, // LetterBox: 保持宽高比 + 左上角对齐 + 填充114
+};
+
+struct TransInfo {
+  int src_w = 0;
+  int src_h = 0;
+  int tar_w = 0;
+  int tar_h = 0;
+  TransInfo() = default;
+  TransInfo(int srcW, int srcH, int tarW, int tarH)
+      : src_w(srcW), src_h(srcH), tar_w(tarW), tar_h(tarH) {}
+};
+
+struct AffineMatrix {
+  float forward[6];
+  float reverse[6];
+  float forward_scale;
+  float reverse_scale;
+
+  void calc_forward_matrix(TransInfo trans) {
+    forward[0] = forward_scale;
+    forward[1] = 0;
+    forward[2] = -forward_scale * trans.src_w * 0.5 + trans.tar_w * 0.5;
+    forward[3] = 0;
+    forward[4] = forward_scale;
+    forward[5] = -forward_scale * trans.src_h * 0.5 + trans.tar_h * 0.5;
+  };
+
+  void calc_reverse_matrix(TransInfo trans) {
+    reverse[0] = reverse_scale;
+    reverse[1] = 0;
+    reverse[2] = -reverse_scale * trans.tar_w * 0.5 + trans.src_w * 0.5;
+    reverse[3] = 0;
+    reverse[4] = reverse_scale;
+    reverse[5] = -reverse_scale * trans.tar_h * 0.5 + trans.src_h * 0.5;
+  };
+
+  void init(TransInfo trans) {
+    float scaled_w = (float)trans.tar_w / trans.src_w;
+    float scaled_h = (float)trans.tar_h / trans.src_h;
+    forward_scale = (scaled_w < scaled_h ? scaled_w : scaled_h);
+    reverse_scale = 1 / forward_scale;
+
+    calc_forward_matrix(trans);
+    calc_reverse_matrix(trans);
+  }
+};
+
+// LetterBox 结构体：存储缩放信息用于后处理坐标恢复
+struct LetterBoxInfo {
+  float scale; // 缩放比例 = min(tar_h/src_h, tar_w/src_w)
+  int new_w;   // 缩放后的宽度
+  int new_h;   // 缩放后的高度
+  int pad_w;   // 水平填充（LetterBox 左上角对齐，所以为 0）
+  int pad_h;   // 垂直填充（LetterBox 左上角对齐，所以为 0）
+};
+
+// 对结构体设置default instance
+extern TransInfo trans;
+extern AffineMatrix affine_matrix;
+extern LetterBoxInfo letterbox_info; // LetterBox 信息
+
+cv::Mat preprocess_resize_cpu(cv::Mat &src, const int &tarH, const int &tarW,
+                              float *mean, float *std, tactics tac);
+cv::Mat preprocess_resize_cpu(cv::Mat &src, const int &tarH, const int &tarW,
+                              tactics tac);
+void preprocess_resize_gpu(cv::Mat &h_src, float *d_tar, const int &tarH,
+                           const int &tarW, float *mean, float *std,
+                           tactics tac);
+void preprocess_resize_gpu(cv::Mat &h_src, float *d_tar, const int &tarH,
+                           const int &tarW, tactics tac);
+void resize_bilinear_gpu(float *d_tar, uint8_t *d_src, int tarW, int tarH,
+                         int srcH, int srcW, float *mean, float *std,
+                         tactics tac);
+void resize_bilinear_gpu(float *d_tar, uint8_t *d_src, int tarW, int tarH,
+                         int srcH, int srcW, tactics tac);
+
+// LetterBox GPU 预处理（新增）
+void letterbox_resize_gpu(cv::Mat &h_src, float *d_tar, const int &tarH,
+                          const int &tarW, float &out_scale);
+
+__host__ __device__ void affine_transformation(float *trans_matrix, int src_x,
+                                               int src_y, float *tar_x,
+                                               float *tar_y);
+
+}; // namespace preprocess
+
+// ============================================================================
+// GPU 后处理命名空间
+// ============================================================================
+namespace postprocess {
+
+/**
+ * GPU Decode YOLO 输出
+ * 
+ * @param d_output       模型输出 (GPU 内存)
+ * @param d_decoded      解码结果 (GPU 内存) [max_boxes, 6]: x0,y0,x1,y1,conf,label
+ * @param d_count        有效框计数 (GPU 内存)
+ * @param boxes_count    候选框总数 (8400)
+ * @param channels       通道数 (4 + num_classes)
+ * @param class_count    类别数
+ * @param conf_threshold 置信度阈值
+ * @param letterbox_scale LetterBox 缩放比例
+ * @param need_transpose 是否需要转置
+ * @param max_boxes      最大输出框数
+ * @param stream         CUDA 流
+ */
+void decode_yolo_gpu(float *d_output, float *d_decoded, int *d_count,
+                     int boxes_count, int channels, int class_count,
+                     float conf_threshold, float letterbox_scale,
+                     bool need_transpose, int max_boxes, cudaStream_t stream);
+
+}; // namespace postprocess
+
+#endif //__PREPROCESS_HPP__
