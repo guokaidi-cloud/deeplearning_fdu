@@ -293,14 +293,7 @@ class InsightFaceMatcher:
         
         h, w = face_crop.shape[:2]
         
-        # 方案1：直接在裁剪的人脸上检测（快速路径）
-        # faces = self.app.get(face_crop)
-        # if len(faces) > 0:
-        #     if len(faces) > 1:
-        #         faces = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)
-        #     return faces[0].embedding
-        
-        # # 方案2：添加边距后再检测（处理人脸太靠边的情况）
+        # # 方案1：添加边距后再检测（处理人脸太靠边的情况）
         # # 边距大小根据人脸尺寸动态调整，并使用边缘复制填充
         pad = max(40, int(min(h, w) * 0.1))
         padded = cv2.copyMakeBorder(face_crop, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
@@ -311,7 +304,7 @@ class InsightFaceMatcher:
                 faces = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)
             return faces[0].embedding
         
-        # 方案3：如果还是检测不到，尝试直接提取特征（精度较低，但保证有输出）
+        # 方案2：如果还是检测不到，尝试直接提取特征（精度较低，但保证有输出）
         try:
             rec_model = self.app.models.get('recognition')
             if rec_model is not None:

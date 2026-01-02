@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-YOLOv8 人脸检测器 + InsightFace 人脸识别
+YOLO 人脸检测器 + InsightFace 人脸识别
 使用 YOLO 检测人脸，InsightFace 匹配识别最相似的人
 """
 
@@ -23,8 +23,6 @@ except ImportError:
     PIL_AVAILABLE = False
 
 sys.path.append(str(Path(__file__).parent))
-
-from face_detector import YOLOFaceDetector
 
 # 导入 InsightFace 匹配器
 try:
@@ -245,9 +243,9 @@ def check_and_download_model(model_path, model_name='yolov8n-face'):
         return False
 
 
-class YOLOSpecializedFaceDetector(YOLOFaceDetector):
+class YOLOSpecializedFaceDetector:
     """
-    专门的YOLOv8人脸检测器
+    专门的YOLO人脸检测器
     使用优化的人脸检测模型，支持基于 InsightFace 的人脸匹配识别和 ByteTrack 跟踪
     """
     
@@ -299,12 +297,16 @@ class YOLOSpecializedFaceDetector(YOLOFaceDetector):
             if not check_and_download_model(model_path, model_name):
                 raise RuntimeError(f"无法获取人脸检测模型: {model_name}")
         
-        # 使用父类初始化
-        super().__init__(
-            model_path=str(model_path),
-            conf_threshold=conf_threshold,
-            device=device
-        )
+        # 初始化模型（原 YOLOFaceDetector 的功能）
+        self.conf_threshold = conf_threshold
+        self.device = device
+        try:
+            self.model = YOLO(str(model_path))
+            print(f"✅ 成功加载模型: {model_path}")
+            print(f"🔧 使用设备: {self.model.device}")
+        except Exception as e:
+            print(f"❌ 模型加载失败: {e}")
+            raise
         
         # 加载中文字体
         if PIL_AVAILABLE:
@@ -607,13 +609,13 @@ class YOLOSpecializedFaceDetector(YOLOFaceDetector):
                 # 绘制边界框
                 cv2.rectangle(vis_image, (x1_int, y1_int), (x2_int, y2_int), box_color, 2)
                 
-                # 构建标签文本
+                # 构建标签文本，显示 (YOLO检测分数, 相似度)
                 if is_known and similarity is not None:
-                    label = f'{name} ({similarity:.2f})'
+                    label = f'{name} ({confidence:.2f}, {similarity:.2f})'
                 elif is_known:
-                    label = f'{name}'
+                    label = f'{name} ({confidence:.2f})'
                 else:
-                    label = f'Face: {confidence:.3f}'
+                    label = f'Face ({confidence:.2f})'
                 
                 # 绘制标签（支持中文）
                 label_y = max(0, y1_int - 28)
@@ -628,15 +630,15 @@ class YOLOSpecializedFaceDetector(YOLOFaceDetector):
         return faces, vis_image
 
 
-def process_video_with_yolov8(detector, video_path, output_path=None, show_video=False, 
+def process_video(detector, video_path, output_path=None, show_video=False, 
                               max_frames=None, start_time=None, end_time=None, save_faces=True,
                               save_interval_sec=5.0, enable_recognition=True, enable_tracking=True,
                               recognition_interval=3):
     """
-    使用YOLOv8处理视频文件进行人脸检测、识别和跟踪
+    使用YOLO处理视频文件进行人脸检测、识别和跟踪
     
     Args:
-        detector: YOLOv8人脸检测器实例
+        detector: YOLO人脸检测器实例
         video_path: 视频文件路径
         output_path: 输出视频路径
         show_video: 是否显示视频
@@ -858,6 +860,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 x1, y1, x2, y2 = face['bbox']
                 confidence = face['confidence']
                 name = face.get('name', '未知人员')
+                similarity = face.get('similarity', None)
                 track_id = face.get('track_id', None)
                 is_known = name != "未知人员"
                 
@@ -874,14 +877,18 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
                 # 绘制边界框（使用 OpenCV，快速）
                 cv2.rectangle(vis_frame, (x1, y1), (x2, y2), box_color, 2)
                 
-                # 构建标签文本，优先显示姓名
+                # 构建标签文本，显示姓名和分数 (YOLO检测分数, 相似度)
                 if tracking_enabled and track_id is not None:
-                    if is_known:
+                    if is_known and similarity is not None:
+                        label = f'{name} | ID:{track_id} ({confidence:.2f}, {similarity:.2f})'
+                    elif is_known:
                         label = f'{name} | ID:{track_id} ({confidence:.2f})'
                     else:
                         label = f'ID:{track_id} ({confidence:.2f})'
                 else:
-                    if is_known:
+                    if is_known and similarity is not None:
+                        label = f'{name} ({confidence:.2f}, {similarity:.2f})'
+                    elif is_known:
                         label = f'{name} ({confidence:.2f})'
                     else:
                         label = f'Face ({confidence:.2f})'
@@ -992,7 +999,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
             
             # 显示视频
             if show_video:
-                cv2.imshow('YOLOv8人脸检测', vis_frame)
+                cv2.imshow('YOLO人脸检测', vis_frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     print("👤 用户按'q'键退出")
                     break
@@ -1031,7 +1038,7 @@ def process_video_with_yolov8(detector, video_path, output_path=None, show_video
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description='YOLOv8专业人脸检测器（使用 InsightFace 进行人脸匹配识别）')
+    parser = argparse.ArgumentParser(description='YOLO专业人脸检测器（使用 InsightFace 进行人脸匹配识别）')
     parser.add_argument('--input', type=str, required=True,
                        help='输入视频或图片文件路径')
     parser.add_argument('--output', type=str, 
@@ -1089,7 +1096,7 @@ def main():
     
     try:
         # 初始化专业人脸检测器
-        print(f"🚀 初始化YOLOv8人脸检测器...")
+        print(f"🚀 初始化YOLO人脸检测器...")
         detector = YOLOSpecializedFaceDetector(
             model_name=args.model,
             conf_threshold=args.conf,
@@ -1116,12 +1123,12 @@ def main():
         # 设置输出路径
         output_path = args.output
         if not output_path:
-            output_path = input_path.parent / f"yolov8_detected_{input_path.name}"
+            output_path = input_path.parent / f"yolo_detected_{input_path.name}"
         
         # 处理视频文件
         if input_path.is_file() and input_path.suffix.lower() in ['.mp4', '.avi', '.mov', '.mkv']:
             # 创建专用的视频处理方法
-            process_video_with_yolov8(
+            process_video(
                 detector=detector,
                 video_path=input_path,
                 output_path=output_path,
@@ -1169,7 +1176,7 @@ def main():
             
             # 保存结果
             if not output_path:
-                output_path = input_path.parent / f"yolov8_detected_{input_path.name}"
+                output_path = input_path.parent / f"yolo_detected_{input_path.name}"
             
             cv2.imwrite(str(output_path), vis_image)
             
@@ -1192,7 +1199,7 @@ def main():
             
             # 显示结果
             if args.show:
-                cv2.imshow('YOLOv8专业人脸检测', vis_image)
+                cv2.imshow('YOLO人脸检测', vis_image)
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
         
