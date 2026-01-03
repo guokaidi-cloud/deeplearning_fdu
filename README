@@ -1,4 +1,8 @@
 
+# 安装数据
+把"教室学生机位/"中的视频文件 安装到"教室学生机位/"
+
+
 # yolov8n-face和yolov12l-face的基线模型人脸检测效果
 mkdir -p test_data/face_detection/
 
@@ -12,9 +16,10 @@ python face_detection/yolo_face_detector.py --input "教室学生机位/深度�
 
 
 # 微调模型
-视频数据提取   model_finetune/extract_frames.py
-图片数据标注  model_finetune/label.py
-模型微调  model_finetune/model_train.py
+# model_finetune为公开目录，label为私有目录
+视频数据提取   model_finetune/extract_frames.py   或者使用label/extract_frames.py
+图片数据标注  model_finetune/label.py   或者使用label/label.py
+模型微调  model_finetune/model_train.py   或者使用label/model_train.py
 
 
 # 跟踪保存图片
@@ -42,9 +47,16 @@ python face_detection/yolo_face_detector.py --input "教室学生机位/深度�
    --photo-folder  classmate_photo_processed/  --similarity-threshold 0.61
 
 python face_detection/yolo_face_detector.py --input "教室学生机位/深度学习应用++2025-11-29第1-3节+[30657+-+524563]教室流.mp4"  \
-   --output "test_data/classroom_2025-11-29_100m_later_save_faces_after_yolov12l_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 500  \
+   --output "test_data/classroom_2025-11-29_100m_later_yolov12l_finetune.mp4" --conf 0.3 --start-time 6000 --max-frames 500  \
    --model-path /home/kaidiguo/workspace/deeplearning_fdu/label/runs/yolov12l_face_finetune6/weights/best.pt   \
    --photo-folder  classmate_photo_processed/  --similarity-threshold 0.61
+
+
+# cuda和tensorrt
+# 需要自行安装cuda/cudnn/tensorrt/opencv的依赖，修改cuda_tensorrt/中的Makefile配置
+cd cuda_tensorrt/deploy-yolo && python src/python/test_model.py 
+# 运行tensorrt
+cd cuda_tensorrt/deploy-yolo && make clean && mkdir bin &&  make run
 
 
 # 前端展示
