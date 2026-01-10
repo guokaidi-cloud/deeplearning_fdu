@@ -1,4 +1,4 @@
-# 🎓 深度学习人脸检测与识别系统
+# 🎓 深度学习课程项目报告
 
 基于 YOLOv8/YOLOv12 的教室场景人脸检测、跟踪与识别系统，支持模型微调、TensorRT 加速部署及 Web 可视化展示。
 
@@ -197,14 +197,14 @@ cd frontend && python -m http.server 8001
 | `--output` | 输出视频路径 | - |
 | `--model` | 预训练模型名称 | `yolov8n-face` |
 | `--model-path` | 自定义模型路径 | - |
-| `--conf` | 置信度阈值 | 0.5 |
+| `--conf` | 置信度阈值 | 0.3 |
 | `--start-time` | 起始时间（秒） | 0 |
 | `--max-frames` | 最大处理帧数 | -1 (全部) |
 | `--track` | 启用目标跟踪 | False |
 | `--save-faces` | 保存检测到的人脸 | False |
 | `--save-interval-sec` | 保存间隔（秒） | 1 |
 | `--photo-folder` | 照片库路径 | - |
-| `--similarity-threshold` | 相似度阈值 | 0.5 |
+| `--similarity-threshold` | 相似度阈值 | 0.61 |
 
 ---
 
