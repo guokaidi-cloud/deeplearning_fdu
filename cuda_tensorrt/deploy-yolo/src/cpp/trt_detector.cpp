@@ -16,6 +16,7 @@
 #include "opencv2/opencv.hpp"
 #include "trt_detector.hpp"
 #include "trt_preprocess.hpp"
+#include "trt_postprocess.hpp"
 
 using namespace std;
 using namespace nvinfer1;
